@@ -152,6 +152,27 @@
 - ✅ `forUser/rules/testing.md` — 日本語対訳を同期更新
 - ✅ `redesign_en.md` — "Static Type Mismatch Checker: AST + CGA + Type Analysis" セクション追記（モジュール設計・誤検知回避設計・CLI・MED非適用の旨を明記）
 
+#### TypeScript / React デバッグ機構（2026-05-13）
+
+静的解析（ts-morph / Node.js）:
+- ✅ `web/scripts/analysis/ast-extractor.ts` — コンポーネント・フック呼び出しを ts-morph で抽出（ComponentInfo / HookCallInfo）
+- ✅ `web/scripts/analysis/hook-checker.ts` — Rules of Hooks 違反（条件分岐内フック）・空依存配列 `[]` を検出
+- ✅ `web/scripts/analysis/checker.ts` — CLI orchestrator（`pnpm analyze`、exit 1 で CI ブロック）
+- ✅ `web/tsconfig.scripts.json` — Node.js スクリプト向け独立 tsconfig
+
+動的解析（dev-only / React）:
+- ✅ `web/src/debug/logger.ts` — 型付きイベントバッファ、2秒マイクロバッチで `/api/ingest` に POST（keepalive付き）
+- ✅ `web/src/debug/useRuntimeLogger.ts` — mount / unmount / render数をログする hook
+
+スキーマ拡張:
+- ✅ `EventSource.FRONTEND` / `EventType.FRONTEND_DEBUG` を additive 追加（既存テスト全GREEN）
+- ✅ `FrontendDebugEvent` モデル追加（component / lifecycle / data フィールド）
+
+Rule・ドキュメント:
+- ✅ `.claude/rules/ts-react-strict.md` — TypeScript/React 厳格ルール + analyze/RuntimeLogger 使用規約
+- ✅ `forUser/rules/ts-react-strict.md` — 日本語対訳
+- ✅ `web/package.json` に `"analyze"` スクリプト追加（ts-morph 28.0.0 / tsx 経由）
+
 #### 動的型不一致検出（typeguard + AST + CGA）
 - ⬜ `typeguard` を dev依存に追加（`poetry add --group dev typeguard`）
 - ⬜ `src/analysis/call_graph.py` に `build_reverse_call_graph()` 追加（callee→callers逆引き）
@@ -190,4 +211,4 @@
 
 ---
 
-_最終更新: 2026-05-12 — 分析ステップ追加・7段階パイプライン（取込→分析→要約）、transcript_analyzer.py新設（turn_duration境界検出）、SessionStats に has_unanalyzed_events 追加_
+_最終更新: 2026-05-13 — TypeScript/React デバッグ機構追加（ts-morph 静的解析・RuntimeLogger dev-only）、EventSource.FRONTEND スキーマ拡張、ts-react-strict.md ルール作成_
