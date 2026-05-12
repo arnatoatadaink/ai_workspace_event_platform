@@ -1,0 +1,44 @@
+[project]
+name = "ai-workspace-event-platform"
+version = "0.1.0"
+description = "Structured event sourcing system for Claude CLI AI interactions"
+authors = [
+    {name = "arnatoatadaink"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "aiosqlite>=0.20",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "openai (>=2.36.0,<3.0.0)",
+    "anthropic (>=0.100.0,<0.101.0)",
+    "websockets (>=12.0)",
+    "sentence-transformers (>=5.4.1,<6.0.0)",
+    "umap-learn (>=0.5.12,<0.6.0)",
+    "plotly (>=6.7.0,<7.0.0)",
+    "watchfiles>= 1.0.0",
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.23"
+ruff = ">=0.4"
+mypy = ">=1.10"
+pytest-testmon = "^2.2.0"
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

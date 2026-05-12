@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "post_tool_use_v1",
+  "title": "Claude PostToolUse Hook Payload",
+  "description": "Payload delivered after Claude executes a tool.",
+  "type": "object",
+  "required": ["hook_event_name", "session_id", "tool_name", "tool_input"],
+  "properties": {
+    "hook_event_name": {
+      "type": "string",
+      "const": "PostToolUse"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "tool_use_id": {
+      "type": "string",
+      "description": "Correlates the tool call with its result."
+    },
+    "tool_name": {
+      "type": "string"
+    },
+    "tool_input": {
+      "type": "object"
+    },
+    "tool_response": {
+      "description": "Output returned by the tool. Type depends on the tool."
+    },
+    "is_error": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "additionalProperties": true
+}

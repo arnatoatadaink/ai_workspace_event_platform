@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pre_tool_use_v1",
+  "title": "Claude PreToolUse Hook Payload",
+  "description": "Payload delivered before Claude executes a tool.",
+  "type": "object",
+  "required": ["hook_event_name", "session_id", "tool_name", "tool_input"],
+  "properties": {
+    "hook_event_name": {
+      "type": "string",
+      "const": "PreToolUse"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "tool_name": {
+      "type": "string",
+      "description": "Name of the tool about to be called (e.g. 'Bash', 'Read', 'Write')."
+    },
+    "tool_input": {
+      "type": "object",
+      "description": "Tool-specific input arguments."
+    }
+  },
+  "additionalProperties": true
+}
