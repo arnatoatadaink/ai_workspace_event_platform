@@ -152,6 +152,17 @@
 - ✅ `forUser/rules/testing.md` — 日本語対訳を同期更新
 - ✅ `redesign_en.md` — "Static Type Mismatch Checker: AST + CGA + Type Analysis" セクション追記（モジュール設計・誤検知回避設計・CLI・MED非適用の旨を明記）
 
+#### Vitest テストフック基盤（2026-05-13）
+- ✅ `vitest` + `@vitest/coverage-v8` + `jsdom` + `@testing-library/{react,jest-dom,user-event}` インストール
+- ✅ `web/vitest.config.ts` — jsdom環境・setupFiles 設定（pytest の conftest.py 相当）
+- ✅ `web/src/test/setup.ts` — グローバルセットアップ（`@testing-library/jest-dom` import）
+- ✅ `web/src/test/smoke.test.tsx` — スモークテスト（1 passed / GREEN確認済み）
+- ✅ `web/package.json` — `test` / `test:run` / `test:coverage` スクリプト追加
+- ✅ `web/tsconfig.json` — `"vitest/globals"` を `types` に追加
+- ✅ `.claude/rules/ts-react-strict.md` — Testing セクション追加（Vitest hookテーブル・命名規則・CI契約）
+- ✅ `forUser/rules/ts-react-strict.md` — 日本語対訳を同期更新
+- ✅ `redesign_en.md` — Vitest フックシステム設計セクション追記（pytest対応表・パッケージ構成）
+
 #### TypeScript / React デバッグ機構（2026-05-13）
 
 静的解析（ts-morph / Node.js）:
@@ -211,4 +222,4 @@ Rule・ドキュメント:
 
 ---
 
-_最終更新: 2026-05-13 — TypeScript/React デバッグ機構追加（ts-morph 静的解析・RuntimeLogger dev-only）、EventSource.FRONTEND スキーマ拡張、ts-react-strict.md ルール作成_
+_最終更新: 2026-05-13 — Vitestテストフック基盤追加（vitest+jsdom+Testing Library、conftest.py相当のsetup.ts）、ts-react-strict.md Testing セクション追加、redesign_en.md Vitest設計セクション追記_
