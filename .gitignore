@@ -44,6 +44,12 @@ docs/build/
 web/node_modules/
 web/dist/
 
+# ルートレベルの誤配置 pnpm ファイル（web/ 以下が正）
+/node_modules/
+/package.json
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
 # ローカル設定
 configs/llm_config.local.yaml
 .restic/

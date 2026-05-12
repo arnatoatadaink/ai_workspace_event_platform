@@ -184,6 +184,33 @@ Rule・ドキュメント:
 - ✅ `forUser/rules/ts-react-strict.md` — 日本語対訳
 - ✅ `web/package.json` に `"analyze"` スクリプト追加（ts-morph 28.0.0 / tsx 経由）
 
+#### データフロー可視化ツールチェーン（2026-05-13）
+
+Python 静的解析層:
+- ✅ `src/analysis/db_schema_extractor.py` — DDL（regex）・Pydantic（AST）・SQLクエリ（string literal walk）抽出。ColumnInfo / SqlTableInfo / PydanticModelInfo / SqlQueryInfo / DbExtractionResult
+- ✅ `src/analysis/route_extractor.py` — FastAPI `@router.METHOD()` デコレータを AST 解析して RouteInfo 抽出（path / method / handler_name / response_model / tags）
+- ✅ `src/analysis/ir_builder.py` — 全解析結果を統合した中間表現（IR）生成。ノード ID 体系（`py:{module}:{qname}` / `api:{METHOD}:{path}` / `db:{table}` / `fe:*`）、関数フィルタ（ルートハンドラ起点 2ホップBFS + SQLクエリ関数）
+- ✅ `src/api/routers/dataflow.py` — `GET /dataflow/ir` エンドポイント（asyncio.to_thread で同期IR生成を非同期化）
+- ✅ `src/api/main.py` に `dataflow` ルーター追加
+
+TypeScript 静的解析層:
+- ✅ `web/scripts/analysis/fetch-extractor.ts` — ts-morph で `fetch()` コールサイト抽出（テンプレートリテラル `${BASE}/path/${id}` → `{*}` 正規化対応）
+- ✅ `web/scripts/analysis/ir-exporter.ts` — フロントエンドIRを `runtime/frontend_analysis.json` に書き出す（`pnpm analyze:ir`）
+- ✅ `web/package.json` に `"analyze:ir"` スクリプト追加
+
+React フロントエンド:
+- ✅ `web/src/components/dataflow/types.ts` — IRNode / IREdge / DataFlowIR 型定義
+- ✅ `web/src/components/dataflow/FlowGraph.tsx` — ReactFlow v12 + dagre LR レイアウト、ノード種別ごとに色分け（component/hook/fetch_call/route/function/pydantic/table）
+- ✅ `web/src/pages/DataFlowPage.tsx` — `GET /dataflow/ir` フェッチ、レイヤーフィルターチェックボックス付き
+- ✅ `web/src/App.tsx` — 「データフロー」ナビボタン追加（4ページ目）
+- ✅ `web/src/app.css` — dataflow-page / dataflow-controls / dataflow-graph スタイル追加
+
+テスト・品質:
+- ✅ `tests/test_db_schema_extractor.py` — 22テスト（DDL列パース・Pydantic抽出・SQLクエリ・組合せ）
+- ✅ `tests/test_route_extractor.py` — 10テスト（全HTTPメソッド・response_model・タグ・同期/非同期）
+- ✅ 32テスト全GREEN、`tsc --noEmit` エラーゼロ
+- ✅ `web/package.json` `pnpm.onlyBuiltDependencies` に `esbuild` 追加 + pnpm-lock.yaml 再生成（esbuild ビルドスクリプト承認）
+
 #### 動的型不一致検出（typeguard + AST + CGA）
 - ⬜ `typeguard` を dev依存に追加（`poetry add --group dev typeguard`）
 - ⬜ `src/analysis/call_graph.py` に `build_reverse_call_graph()` 追加（callee→callers逆引き）
@@ -222,4 +249,4 @@ Rule・ドキュメント:
 
 ---
 
-_最終更新: 2026-05-13 — Vitestテストフック基盤追加（vitest+jsdom+Testing Library、conftest.py相当のsetup.ts）、ts-react-strict.md Testing セクション追加、redesign_en.md Vitest設計セクション追記_
+_最終更新: 2026-05-13 — データフロー可視化ツールチェーン追加（DB/Route/IR Python静的解析、fetch-extractor/ir-exporter TypeScript解析、ReactFlow+dagre グラフUI、GET /dataflow/ir API）、32テスト全GREEN、pnpm esbuild ビルドスクリプト問題修正_
