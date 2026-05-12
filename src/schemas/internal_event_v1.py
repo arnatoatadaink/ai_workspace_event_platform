@@ -20,6 +20,7 @@ class EventSource(str, Enum):
     DISCORD_BOT = "discord_bot"
     GEMINI_CLI = "gemini_cli"
     SYSTEM = "system"
+    FRONTEND = "frontend"
 
 
 class EventType(str, Enum):
@@ -31,6 +32,7 @@ class EventType(str, Enum):
     SUMMARY_UPDATE = "summary_update"
     TOPIC_EXTRACTION = "topic_extraction"
     STATE_UPDATE = "state_update"
+    FRONTEND_DEBUG = "frontend_debug"
 
 
 def _new_event_id() -> str:
@@ -123,6 +125,16 @@ class TopicExtractionEvent(InternalEvent):
     conversation_id: Optional[str] = None
 
 
+class FrontendDebugEvent(InternalEvent):
+    """Debug event emitted by the React frontend (dev-only)."""
+
+    event_type: Literal[EventType.FRONTEND_DEBUG] = EventType.FRONTEND_DEBUG
+    source: Literal[EventSource.FRONTEND] = EventSource.FRONTEND  # type: ignore[assignment]
+    component: str
+    lifecycle: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
 # Discriminated union for deserialization
 AnyEvent = (
     MessageEvent
@@ -132,6 +144,7 @@ AnyEvent = (
     | StopEvent
     | SummaryUpdateEvent
     | TopicExtractionEvent
+    | FrontendDebugEvent
     | InternalEvent
 )
 
@@ -143,6 +156,7 @@ _EVENT_TYPE_MAP: dict[EventType, type[InternalEvent]] = {
     EventType.STOP: StopEvent,
     EventType.SUMMARY_UPDATE: SummaryUpdateEvent,
     EventType.TOPIC_EXTRACTION: TopicExtractionEvent,
+    EventType.FRONTEND_DEBUG: FrontendDebugEvent,
 }
 
 
