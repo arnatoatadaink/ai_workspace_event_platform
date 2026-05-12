@@ -20,6 +20,7 @@ from src.adapters.claude.adapter import ClaudeAdapter
 from src.api.routers import (
     claude_scan,
     conversations,
+    dataflow,
     events,
     ingest,
     plugins,
@@ -105,3 +106,4 @@ app.include_router(plugins.router)
 app.include_router(ws.router)
 app.include_router(claude_scan.router)
 app.include_router(umap.router)
+app.include_router(dataflow.router)

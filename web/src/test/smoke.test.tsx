@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import type { JSX } from "react";
 
 function Hello({ name }: { name: string }): JSX.Element {
   return <p>Hello, {name}</p>;
