@@ -21,7 +21,7 @@ const OUTPUT_PATH = path.resolve(PROJECT_ROOT, "runtime/frontend_analysis.json")
 
 interface IRNode {
   id: string;
-  kind: "component" | "hook" | "fetch_call";
+  kind: "component" | "hook" | "fetch_call" | "function";
   label: string;
   meta: Record<string, unknown>;
 }
@@ -29,7 +29,7 @@ interface IRNode {
 interface IREdge {
   source: string;
   target: string;
-  kind: "uses_hook";
+  kind: "uses_hook" | "calls";
   label?: string;
 }
 
@@ -95,7 +95,8 @@ function run(): void {
     }
   }
 
-  // Fetch call nodes
+  // Fetch call nodes + caller → fetch edges
+  const seenCallerFetchPairs = new Set<string>();
   for (const fetchCall of fetchCalls) {
     const fetchId = `fe:fetch:${fetchCall.method}:${fetchCall.path}`;
     addNode({
@@ -110,6 +111,29 @@ function run(): void {
         line: fetchCall.line,
       },
     });
+
+    const { callerName } = fetchCall;
+    if (callerName === "<module>" || callerName === "<anonymous>") continue;
+
+    let callerNodeId: string;
+    if (componentNames.has(callerName)) {
+      callerNodeId = `fe:component:${callerName}`;
+    } else {
+      // API utility function (e.g. fetchIR, getSessionStats)
+      callerNodeId = `fe:function:${callerName}`;
+      addNode({
+        id: callerNodeId,
+        kind: "function",
+        label: callerName,
+        meta: { file: fetchCall.file, line: fetchCall.line },
+      });
+    }
+
+    const edgeKey = `${callerNodeId}→${fetchId}`;
+    if (!seenCallerFetchPairs.has(edgeKey)) {
+      seenCallerFetchPairs.add(edgeKey);
+      edges.push({ source: callerNodeId, target: fetchId, kind: "calls" });
+    }
   }
 
   const output: FrontendAnalysis = { nodes, edges };

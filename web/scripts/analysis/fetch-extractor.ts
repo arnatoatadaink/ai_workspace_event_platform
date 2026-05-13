@@ -44,8 +44,14 @@ function enclosingFunctionName(node: Node): string {
   let cur: Node | undefined = node.getParent();
   while (cur) {
     if (Node.isFunctionDeclaration(cur)) return cur.getName() ?? "<anonymous>";
-    if (Node.isVariableDeclaration(cur)) return cur.getName();
     if (Node.isMethodDeclaration(cur)) return cur.getName();
+    if (Node.isVariableDeclaration(cur)) {
+      // Only treat as enclosing scope when the variable holds a function-like
+      const init = cur.getInitializer();
+      if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
+        return cur.getName();
+      }
+    }
     cur = cur.getParent();
   }
   return "<module>";

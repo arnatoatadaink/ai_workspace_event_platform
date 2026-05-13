@@ -184,7 +184,23 @@ Rule・ドキュメント:
 - ✅ `forUser/rules/ts-react-strict.md` — 日本語対訳
 - ✅ `web/package.json` に `"analyze"` スクリプト追加（ts-morph 28.0.0 / tsx 経由）
 
-#### データフロー可視化ツールチェーン（2026-05-13）
+#### データフロー可視化 — フローハイライト（2026-05-13）
+- ✅ `web/src/components/dataflow/FlowGraph.tsx` — ノードクリックでフローハイライト機能追加
+  - 上流 BFS（逆方向エッジ辿り）+ 下流 BFS（順方向エッジ辿り）で経路ノード/エッジを算出
+  - ノード状態: `selected`（白枠+光彩）/ `path`（白ボーダー）/ `dimmed`（opacity 0.18）/ `normal`
+  - エッジ状態: 経路上は白・太・アニメーション、経路外はほぼ透明
+  - 同ノード再クリック / 背景クリックで選択解除
+  - dagre レイアウト計算（重い）は IR 変更時のみ、ハイライト計算はクリック時のみ（別 useMemo）
+- ✅ `web/src/pages/DataFlowPage.tsx` — 操作ヒント文言追加（「ノードをクリック → フローをハイライト」）
+- ✅ `web/src/app.css` — `.dataflow-hint` スタイル追加
+
+#### データフロー可視化ツールチェーン — APIからTSXまで（2026-05-13）
+
+TypeScript→API接続層（2026-05-13追加）:
+- ✅ `web/scripts/analysis/fetch-extractor.ts` — `enclosingFunctionName` バグ修正（`const res = await fetch(...)` の `VariableDeclaration` を関数ではなく変数として正しく扱うよう修正）
+- ✅ `web/scripts/analysis/ir-exporter.ts` — `IRNode.kind` に `"function"` 追加、`IREdge.kind` に `"calls"` 追加
+- ✅ `web/scripts/analysis/ir-exporter.ts` — 呼び出し元→fetch_callノード間の `calls` エッジ生成（API ユーティリティ関数ノード `fe:function:X` を自動生成）
+- ✅ 完全チェーン: `fe:function:fetchSessions` → `fe:fetch:GET:/sessions` → `api:GET:/sessions` → `py:function` → `db:table`
 
 Python 静的解析層:
 - ✅ `src/analysis/db_schema_extractor.py` — DDL（regex）・Pydantic（AST）・SQLクエリ（string literal walk）抽出。ColumnInfo / SqlTableInfo / PydanticModelInfo / SqlQueryInfo / DbExtractionResult
@@ -249,4 +265,4 @@ React フロントエンド:
 
 ---
 
-_最終更新: 2026-05-13 — データフロー可視化ツールチェーン追加（DB/Route/IR Python静的解析、fetch-extractor/ir-exporter TypeScript解析、ReactFlow+dagre グラフUI、GET /dataflow/ir API）、32テスト全GREEN、pnpm esbuild ビルドスクリプト問題修正_
+_最終更新: 2026-05-13 — データフローグラフにフローハイライト機能追加（ノードクリックで上流/下流 BFS、選択ノード光彩・経路エッジ白アニメーション・非経路は薄く）_

@@ -86,6 +86,7 @@ export function DataFlowPage(): JSX.Element {
         <span className="dataflow-stats">
           {filteredNodes.length} ノード / {filteredEdges.length} エッジ
         </span>
+        <span className="dataflow-hint">ノードをクリック → フローをハイライト（再クリック / 背景クリックで解除）</span>
       </div>
       <div className="dataflow-graph">
         <FlowGraph nodes={filteredNodes} edges={filteredEdges} />

@@ -836,6 +836,13 @@ html, body, #root {
   font-family: monospace;
 }
 
+.dataflow-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
 .dataflow-graph {
   flex: 1;
   min-height: 0;
