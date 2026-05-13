@@ -265,4 +265,8 @@ React フロントエンド:
 
 ---
 
-_最終更新: 2026-05-13 — データフローグラフにフローハイライト機能追加（ノードクリックで上流/下流 BFS、選択ノード光彩・経路エッジ白アニメーション・非経路は薄く）_
+#### 表示状態バグ修正（2026-05-13）
+- ✅ `web/src/HomePage.tsx` — `getSessionStatus`: `has_unanalyzed_events` チェックを要約進捗チェックより後に移動。旧ロジックでは `summarized_count>0` でも `has_unanalyzed_events=true` なら「分析中」に落ちていた（例：`conv=2, sum=1, unanalyzed=true` → 「分析中」で要約ボタン非表示）。修正後は要約進捗を優先し `summarized_count > 0` なら「要約中」、全要約済みでかつ未分析イベントがある場合のみ「分析中」に。
+- ✅ `web/src/HomePage.tsx` — `showAnalyze` / `showSummarize` をステータス文字列ではなく `stats` 直接参照に変更。`showAnalyze = stats.has_unanalyzed_events`、`showSummarize = conv > 0 && summarized < conv`。これにより「分析中」状態でも未要約会話があれば要約ボタンが表示され、矛盾を解消。
+
+_最終更新: 2026-05-13 — 表示状態バグ修正（has_unanalyzed_events と要約進捗の優先順位逆転）_

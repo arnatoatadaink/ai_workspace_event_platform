@@ -62,10 +62,12 @@ function getSessionStatus(
   } = stats;
   if (has_pending_transcript) return "取込中";
   if (conversation_count === 0) return "取込済";
+  // Check summary progress first so partial/full summarization is visible even when
+  // trailing unanalyzed events exist (e.g. active session with pending turn boundaries).
+  if (summarized_count === conversation_count) return has_unanalyzed_events ? "分析中" : "要約済";
+  if (summarized_count > 0) return "要約中";
   if (has_unanalyzed_events) return "分析中";
-  if (summarized_count === 0) return "分析済";
-  if (summarized_count < conversation_count) return "要約中";
-  return "要約済";
+  return "分析済";
 }
 
 interface Props {
@@ -362,8 +364,12 @@ export function HomePage({ onOpenSession, sessions, onSessionsRefresh }: Props) 
               const status = getSessionStatus(isIngested, stats);
               const loading = actionLoading[s.session_id];
               const showIngest = status === "未取込" || status === "取込中";
-              const showAnalyze = status === "取込済" || status === "分析中";
-              const showSummarize = status === "分析済" || status === "要約中";
+              const showAnalyze = isIngested && !!stats && stats.has_unanalyzed_events;
+              const showSummarize =
+                isIngested &&
+                !!stats &&
+                stats.conversation_count > 0 &&
+                stats.summarized_count < stats.conversation_count;
               return (
                 <tr key={s.session_id} className="session-table-row">
                   <td className="session-table-id">
