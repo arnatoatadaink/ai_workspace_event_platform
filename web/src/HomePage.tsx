@@ -62,9 +62,9 @@ function getSessionStatus(
   } = stats;
   if (has_pending_transcript) return "取込中";
   if (conversation_count === 0) return "取込済";
-  // Check summary progress first so partial/full summarization is visible even when
-  // trailing unanalyzed events exist (e.g. active session with pending turn boundaries).
-  if (summarized_count === conversation_count) return has_unanalyzed_events ? "分析中" : "要約済";
+  // Trailing unanalyzed events haven't formed a conversation record yet;
+  // evaluate summary progress first so those events don't downgrade the status.
+  if (summarized_count === conversation_count) return "要約済";
   if (summarized_count > 0) return "要約中";
   if (has_unanalyzed_events) return "分析中";
   return "分析済";

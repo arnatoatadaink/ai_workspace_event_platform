@@ -284,4 +284,10 @@ React フロントエンド:
 - ✅ `src/api/routers/sessions.py` — `has_pending_transcript`: stop hook カーソル → pipeline カーソルベースに変更
 - ✅ `src/api/routers/sessions.py` — `has_unanalyzed_events`: `event_count > last_indexed + 1` → `event_count > sum(end-start+1 for covered ranges)` に変更。マージ conv(4+5) での false positive 解消・非連続ギャップも検出可能
 
+#### ホームタブ バグ修正（2026-05-13 追加分）
+- ✅ `web/src/HomePage.tsx` — `getSessionStatus`: `summarized_count === conversation_count` のとき `has_unanalyzed_events` に関わらず「要約済」を返すよう修正。旧ロジックでは trailing unanalyzed events があると全会話要約済みでも「分析中」に落ちていた。
+
+#### 既知バグ（低優先度）
+- ⬜ **会話数 +1 重複表示**: ホームタブの会話カウント（`summarized_count/conversation_count`）が実際より1多く表示されることがある。`analyze_transcript_session` が trailing events を会話として保存する際、既存レコードと境界が重なって二重計上されている可能性がある。影響は表示のみ（データ破壊なし）。優先度: 低。
+
 _最終更新: 2026-05-13 — パイプライン別系統化（stop hook から独立した取り込み/分析・UUID 重複排除・共存 analyze）_
