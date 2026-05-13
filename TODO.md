@@ -269,4 +269,19 @@ React フロントエンド:
 - ✅ `web/src/HomePage.tsx` — `getSessionStatus`: `has_unanalyzed_events` チェックを要約進捗チェックより後に移動。旧ロジックでは `summarized_count>0` でも `has_unanalyzed_events=true` なら「分析中」に落ちていた（例：`conv=2, sum=1, unanalyzed=true` → 「分析中」で要約ボタン非表示）。修正後は要約進捗を優先し `summarized_count > 0` なら「要約中」、全要約済みでかつ未分析イベントがある場合のみ「分析中」に。
 - ✅ `web/src/HomePage.tsx` — `showAnalyze` / `showSummarize` をステータス文字列ではなく `stats` 直接参照に変更。`showAnalyze = stats.has_unanalyzed_events`、`showSummarize = conv > 0 && summarized < conv`。これにより「分析中」状態でも未要約会話があれば要約ボタンが表示され、矛盾を解消。
 
-_最終更新: 2026-05-13 — 表示状態バグ修正（has_unanalyzed_events と要約進捗の優先順位逆転）_
+#### パイプライン別系統化・取り込み補完修正（2026-05-13）
+- ✅ **根本原因**: stop hook と同一カーソル (`{session_id}.cursor`) をパイプラインが使用 → hook がカーソルを進めた後はパイプラインが 0件取り込み → `run_incremental_update` は StopEvent なしで会話レコード生成不可 → 「取り込み済0/0」バグ
+- ✅ `src/adapters/claude/transcript.py` — `parse_transcript_messages` に `apply_migration_guard: bool = True` 追加。パイプライン側は `False` で呼び出し（UUID 重複排除で代替）
+- ✅ `src/api/routers/claude_scan.py` — パイプライン専用カーソル `{session_id}.pipeline.cursor` を導入し hook カーソルと完全分離
+- ✅ `src/api/routers/claude_scan.py` — `_collect_existing_event_ids` ヘルパー追加（生JSON解析で event_id セットを構築、Pydantic パース不要）。ingest 時に UUID 重複排除してストア重複書き込みを防止
+- ✅ `src/api/routers/claude_scan.py` — `run_incremental_update`（StopEvent 依存 indexer）を ingest エンドポイントから削除。会話レコード生成は analyze エンドポイントで分担
+- ✅ `src/replay/db.py` — `get_conversation_index_ranges()` 追加。セッションの全会話の (event_index_start, event_index_end) ペアを返す
+- ✅ `src/replay/transcript_analyzer.py` — analyze を「未カバーイベント」ベースに再設計:
+  - `_collect_events_from(store, session_id, start_from_idx=0)` — ストア全イベント収集
+  - `_find_uncovered_events(all_events, existing_ranges)` — DB カバー済み範囲外イベントを抽出
+  - `analyze_transcript_session` — 未カバーイベントを `turn_duration` 境界で分割して会話レコード追加（既存レコード削除なし・共存）
+  - trailing events 対応: 最終 turn_duration 後の進行中イベントも会話として保存
+- ✅ `src/api/routers/sessions.py` — `has_pending_transcript`: stop hook カーソル → pipeline カーソルベースに変更
+- ✅ `src/api/routers/sessions.py` — `has_unanalyzed_events`: `event_count > last_indexed + 1` → `event_count > sum(end-start+1 for covered ranges)` に変更。マージ conv(4+5) での false positive 解消・非連続ギャップも検出可能
+
+_最終更新: 2026-05-13 — パイプライン別系統化（stop hook から独立した取り込み/分析・UUID 重複排除・共存 analyze）_
