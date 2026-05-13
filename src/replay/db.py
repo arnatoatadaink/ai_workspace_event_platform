@@ -265,9 +265,7 @@ class ConversationsDB:
         rows = await cur.fetchall()
         return [_row_to_dict(row) for row in rows]
 
-    async def get_conversation_by_id(
-        self, conversation_id: str
-    ) -> Optional[dict[str, Any]]:
+    async def get_conversation_by_id(self, conversation_id: str) -> Optional[dict[str, Any]]:
         """Return a single conversation row by its ID, or None if not found."""
         assert self._conn is not None
         cur = await self._conn.execute(
@@ -295,6 +293,25 @@ class ConversationsDB:
         )
         row = await cur.fetchone()
         return int(row[0]) if row and row[0] is not None else None
+
+    async def get_conversation_index_ranges(self, session_id: str) -> list[tuple[int, int]]:
+        """Return (event_index_start, event_index_end) for every conversation in a session.
+
+        Ordered by event_index_start ascending.  Used by the pipeline analyzer
+        to determine which store events are not yet covered by any DB record.
+        """
+        assert self._conn is not None
+        cur = await self._conn.execute(
+            """
+            SELECT event_index_start, event_index_end
+            FROM conversations
+            WHERE session_id = ?
+            ORDER BY event_index_start
+            """,
+            (session_id,),
+        )
+        rows = await cur.fetchall()
+        return [(int(row[0]), int(row[1])) for row in rows]
 
     # ------------------------------------------------------------------
     # Summary write/read

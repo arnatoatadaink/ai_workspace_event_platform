@@ -2,6 +2,15 @@
 
 POST /sessions/{session_id}/ingest  — ingest transcript messages into the event store.
 POST /sessions/{session_id}/analyze — split ingested events into conversation records.
+
+Pipeline design note
+--------------------
+Ingest and analyze form an independent pipeline separate from the stop-hook path.
+The pipeline uses its own cursor (``{session_id}.pipeline.cursor``) so it never
+interferes with the hook cursor, and relies on event_id deduplication to avoid
+writing events that the hook already stored.  ``run_incremental_update`` (the
+stop-hook indexer) is NOT called after pipeline ingest; conversation records are
+created by the analyze endpoint which uses transcript turn_duration boundaries.
 """
 
 from __future__ import annotations
@@ -17,10 +26,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from src.adapters.claude.transcript import parse_transcript_messages, write_cursor
-from src.api.deps import get_db, get_snapshot_store, get_store
+from src.api.deps import get_db, get_store
 from src.replay.db import ConversationsDB
-from src.replay.snapshot import run_incremental_update
-from src.replay.snapshot_store import SnapshotStore
 from src.replay.transcript_analyzer import analyze_transcript_session
 from src.store.event_store import EventStore
 
@@ -82,10 +89,29 @@ def _scan_dir(target: Path) -> list[ScannedSession]:
     return [_scan_jsonl(p) for p in files]
 
 
+def _collect_existing_event_ids(store: EventStore, session_id: str) -> set[str]:
+    """Return the set of event_ids already stored for *session_id*.
+
+    Reads raw JSON without full Pydantic validation to minimise overhead.
+    """
+    ids: set[str] = set()
+    for chunk in store.iter_chunks(session_id):
+        with chunk.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ids.add(json.loads(line)["event_id"])
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    return ids
+
+
 class IngestResponse(BaseModel):
     session_id: str
     ingested_count: int
-    conversations_indexed: int
+    skipped_duplicates: int
 
 
 @router.get("/claude/scan-sessions", response_model=list[ScannedSession])
@@ -108,21 +134,22 @@ async def ingest_session_transcript(
     session_id: str,
     store: EventStore = Depends(get_store),
     db: ConversationsDB = Depends(get_db),
-    snapshot_store: SnapshotStore = Depends(get_snapshot_store),
 ) -> IngestResponse:
     """Ingest unprocessed transcript messages for a session into the event store.
 
-    Reads the Claude CLI transcript file at
-    ``~/.claude/projects/<cwd-slug>/<session_id>.jsonl``, parses any lines
-    beyond the stored cursor, appends them as ``MessageEvent`` instances to the
-    event store, updates the cursor, then runs the incremental indexer so new
-    conversation boundaries are reflected immediately in the DB.
+    Uses an independent pipeline cursor (``{session_id}.pipeline.cursor``) so
+    this path never interferes with the stop-hook cursor.  Events already
+    present in the store (matched by event_id) are skipped to avoid duplicates.
 
-    Returns the number of ingested events and newly indexed conversations.
+    After ingest, call ``POST /sessions/{session_id}/analyze`` to create
+    conversation records from the newly stored events using transcript
+    turn_duration boundaries.
+
+    Returns the number of ingested events and skipped duplicates.
     """
     scan_dir = _cwd_to_claude_project_dir()
     transcript_path = scan_dir / f"{session_id}.jsonl"
-    cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.cursor"
+    pipeline_cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.pipeline.cursor"
     store_base = Path("runtime/sessions")
 
     if not transcript_path.exists():
@@ -131,34 +158,36 @@ async def ingest_session_transcript(
             detail=f"Transcript not found: {transcript_path}",
         )
 
+    # Parse transcript from pipeline cursor; skip migration guard — rely on UUID dedup instead.
     msg_events, new_line_count = await asyncio.to_thread(
         parse_transcript_messages,
         transcript_path,
         session_id,
-        cursor_path,
+        pipeline_cursor_path,
         store_base,
+        False,  # apply_migration_guard=False
     )
 
-    for event in msg_events:
+    # Deduplicate: skip events already written by the stop hook.
+    existing_ids: set[str] = await asyncio.to_thread(_collect_existing_event_ids, store, session_id)
+    new_events = [ev for ev in msg_events if ev.event_id not in existing_ids]
+    skipped = len(msg_events) - len(new_events)
+
+    for event in new_events:
         await asyncio.to_thread(store.append, event)
 
-    await asyncio.to_thread(write_cursor, cursor_path, new_line_count)
-
-    before_count = await db.get_last_indexed_event(session_id) or 0
-    await run_incremental_update(session_id, store, db, snapshot_store, summarizer=None)
-    after_count = await db.get_last_indexed_event(session_id) or 0
-    conversations_indexed = max(0, after_count - before_count)
+    await asyncio.to_thread(write_cursor, pipeline_cursor_path, new_line_count)
 
     logger.info(
-        "Ingest %s: %d message events ingested, %d new conversation events indexed",
+        "Pipeline ingest %s: %d new events, %d duplicates skipped",
         session_id,
-        len(msg_events),
-        conversations_indexed,
+        len(new_events),
+        skipped,
     )
     return IngestResponse(
         session_id=session_id,
-        ingested_count=len(msg_events),
-        conversations_indexed=conversations_indexed,
+        ingested_count=len(new_events),
+        skipped_duplicates=skipped,
     )
 
 
@@ -173,15 +202,15 @@ async def analyze_session_transcript(
     store: EventStore = Depends(get_store),
     db: ConversationsDB = Depends(get_db),
 ) -> AnalyzeResponse:
-    """Split ingested events into conversation records using transcript turn boundaries.
+    """Create conversation records for pipeline-ingested events using transcript turn boundaries.
 
     Reads ``system/turn_duration`` markers from the session's Claude CLI
-    transcript JSONL to determine conversation end times, then groups any
-    unindexed events in the event store into new rows in the conversations
-    table.
+    transcript JSONL to determine conversation end times.  Events in the store
+    that are not yet covered by any existing conversation record are grouped by
+    those boundaries and inserted as new rows in the conversations table.
 
-    Falls back to treating all unindexed events as one conversation when the
-    transcript file is unavailable or contains no turn_duration entries.
+    Already-covered events (from stop-hook or a prior analyze run) are left
+    untouched — this path only complements existing records, never deletes them.
 
     Returns the number of newly created conversation records.
     """

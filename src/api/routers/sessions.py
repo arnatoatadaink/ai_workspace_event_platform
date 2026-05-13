@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -28,16 +27,20 @@ def _cwd_to_claude_project_dir() -> Path:
 
 
 def _has_pending_transcript(session_id: str) -> bool:
-    """Return True if the transcript file has unprocessed lines beyond the cursor."""
+    """Return True if the transcript has unprocessed lines beyond the pipeline cursor.
+
+    Uses the pipeline cursor (``{session_id}.pipeline.cursor``) so this reflects
+    the independent pipeline state rather than the stop-hook cursor.
+    """
     transcript_path = _cwd_to_claude_project_dir() / f"{session_id}.jsonl"
-    cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.cursor"
+    pipeline_cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.pipeline.cursor"
     if not transcript_path.exists():
         return False
     try:
         total_lines = sum(1 for _ in transcript_path.open(encoding="utf-8", errors="replace"))
     except OSError:
         return False
-    cursor = read_cursor(cursor_path)
+    cursor = read_cursor(pipeline_cursor_path)
     if cursor is None:
         return total_lines > 0
     return cursor < total_lines
@@ -77,10 +80,14 @@ async def get_session_stats(
     stats = await db.get_session_stats(session_id)
     has_pending = await asyncio.to_thread(_has_pending_transcript, session_id)
     event_count = await asyncio.to_thread(store.count_events, session_id)
-    last_indexed = await db.get_last_indexed_event(session_id)
-    has_unanalyzed = event_count > 0 and (
-        last_indexed is None or event_count > last_indexed + 1
-    )
+
+    # has_unanalyzed: are there store events not covered by any DB conversation record?
+    # Summing covered ranges handles both contiguous gaps and merged-conversation cases
+    # without false positives from turn-count comparisons.
+    ranges = await db.get_conversation_index_ranges(session_id)
+    total_covered = sum(end - start + 1 for start, end in ranges)
+    has_unanalyzed = event_count > 0 and event_count > total_covered
+
     return SessionStats(
         session_id=session_id,
         conversation_count=stats["conversation_count"],

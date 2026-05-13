@@ -1,12 +1,14 @@
-"""Transcript-based conversation analyzer.
+"""Transcript-based conversation analyzer (pipeline path).
 
 Reads ``system/turn_duration`` boundary markers from a Claude CLI transcript
-JSONL and groups ingested event-store events into conversation records in
-ConversationsDB.
+JSONL and creates conversation records in ConversationsDB for store events that
+are not yet covered by any existing record.
 
-Called by the ``POST /sessions/{session_id}/analyze`` endpoint.  Complements
-the hook-driven ``index_session`` indexer — use this when a session was
-recorded while the server was offline (no Stop hooks, no StopEvents in store).
+This complements the hook-driven ``index_session`` indexer.  Existing records
+are never deleted or modified — only records for previously uncovered event
+ranges are inserted.
+
+Called by ``POST /sessions/{session_id}/analyze``.
 """
 
 from __future__ import annotations
@@ -64,12 +66,12 @@ def read_turn_end_times(transcript_path: Path) -> list[datetime]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_unindexed_events(
+def _collect_events_from(
     store: EventStore,
     session_id: str,
-    start_from_idx: int,
+    start_from_idx: int = 0,
 ) -> list[tuple[int, str, InternalEvent]]:
-    """Return ``(global_idx, chunk_name, event)`` for events from *start_from_idx* onward."""
+    """Return ``(global_idx, chunk_name, event)`` for all events from *start_from_idx* onward."""
     results: list[tuple[int, str, InternalEvent]] = []
     global_idx = 0
     for chunk_path in store.iter_chunks(session_id):
@@ -92,6 +94,23 @@ def _collect_unindexed_events(
                         )
                 global_idx += 1
     return results
+
+
+def _find_uncovered_events(
+    all_events: list[tuple[int, str, InternalEvent]],
+    existing_ranges: list[tuple[int, int]],
+) -> list[tuple[int, str, InternalEvent]]:
+    """Return events whose global index is not covered by any existing DB record range.
+
+    *existing_ranges* is a list of (event_index_start, event_index_end) pairs.
+    An event at index *idx* is covered when start <= idx <= end for some range.
+    """
+    if not existing_ranges:
+        return list(all_events)
+    covered: set[int] = set()
+    for start, end in existing_ranges:
+        covered.update(range(start, end + 1))
+    return [(idx, cn, ev) for idx, cn, ev in all_events if idx not in covered]
 
 
 # ---------------------------------------------------------------------------
@@ -131,20 +150,30 @@ async def _analyze_by_turn_ends(
     turn_ends: list[datetime],
     db: ConversationsDB,
 ) -> int:
-    """Group *events* into conversations using ``turn_duration`` boundary timestamps."""
+    """Group *events* into conversations using ``turn_duration`` boundary timestamps.
+
+    Each turn_end timestamp marks the close of one conversation.  Events whose
+    timestamp is at or before that mark belong to that conversation.  Any events
+    remaining after the last turn_end are grouped as a trailing conversation.
+    """
     sorted_ends = sorted(turn_ends)
     remaining = list(events)
     new_rows = 0
 
     for turn_end in sorted_ends:
-        turn_events = [
-            (idx, cn, ev) for idx, cn, ev in remaining if ev.timestamp <= turn_end
-        ]
+        turn_events = [(idx, cn, ev) for idx, cn, ev in remaining if ev.timestamp <= turn_end]
         if not turn_events:
             continue
         remaining = [(idx, cn, ev) for idx, cn, ev in remaining if ev.timestamp > turn_end]
         before = await _count_conversations(db, session_id)
         await _insert_conversation(session_id, turn_events, db)
+        after = await _count_conversations(db, session_id)
+        new_rows += after - before
+
+    # Trailing events after the last known turn boundary (conversation in progress).
+    if remaining:
+        before = await _count_conversations(db, session_id)
+        await _insert_conversation(session_id, remaining, db)
         after = await _count_conversations(db, session_id)
         new_rows += after - before
 
@@ -179,14 +208,16 @@ async def analyze_transcript_session(
     store: EventStore,
     db: ConversationsDB,
 ) -> int:
-    """Create conversation records by matching event-store events to transcript turn boundaries.
+    """Create conversation records for store events not yet covered by any DB record.
 
-    Reads ``system/turn_duration`` entries from *transcript_path* (when
-    provided and present) to determine conversation end times, then groups
-    unindexed events from the event store into conversation records in *db*.
+    Fetches existing conversation index ranges from *db*, collects all events
+    from the event *store*, and identifies events that fall outside every
+    existing range.  Those uncovered events are then grouped by
+    ``system/turn_duration`` boundary timestamps from *transcript_path* and
+    inserted as new conversation rows.
 
-    Falls back to treating all unindexed events as a single conversation when
-    no turn_duration markers exist or *transcript_path* is None / missing.
+    Existing records are never modified or deleted — this path only adds records
+    for previously uncovered intervals (coexist / complement approach).
 
     Args:
         session_id: Target session.
@@ -197,12 +228,23 @@ async def analyze_transcript_session(
     Returns:
         Number of new conversation rows inserted.
     """
-    last_indexed = await db.get_last_indexed_event(session_id)
-    start_from = (last_indexed + 1) if last_indexed is not None else 0
+    # Determine which event indices are already covered by existing DB records.
+    existing_ranges = await db.get_conversation_index_ranges(session_id)
 
-    events = _collect_unindexed_events(store, session_id, start_from)
-    if not events:
-        logger.info("No unindexed events for session %s", session_id)
+    # Collect all events from the store (start from index 0).
+    all_events = _collect_events_from(store, session_id, start_from_idx=0)
+    if not all_events:
+        logger.info("No events in store for session %s", session_id)
+        return 0
+
+    uncovered = _find_uncovered_events(all_events, existing_ranges)
+    if not uncovered:
+        logger.info(
+            "All %d store events for session %s are already covered by %d DB records",
+            len(all_events),
+            session_id,
+            len(existing_ranges),
+        )
         return 0
 
     turn_ends: list[datetime] = []
@@ -211,16 +253,18 @@ async def analyze_transcript_session(
 
     if turn_ends:
         logger.info(
-            "Analyzing session %s: %d events, %d turn boundaries",
+            "Analyzing session %s: %d uncovered events (of %d total), %d turn boundaries",
             session_id,
-            len(events),
+            len(uncovered),
+            len(all_events),
             len(turn_ends),
         )
-        return await _analyze_by_turn_ends(session_id, events, turn_ends, db)
+        return await _analyze_by_turn_ends(session_id, uncovered, turn_ends, db)
 
     logger.info(
-        "Analyzing session %s: %d events, no turn boundaries — using single-conversation fallback",
+        "Analyzing session %s: %d uncovered events, no turn boundaries"
+        " — single-conversation fallback",
         session_id,
-        len(events),
+        len(uncovered),
     )
-    return await _analyze_as_single_conversation(session_id, events, db)
+    return await _analyze_as_single_conversation(session_id, uncovered, db)

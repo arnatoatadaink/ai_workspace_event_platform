@@ -104,13 +104,14 @@ def parse_transcript_messages(
     session_id: str,
     cursor_path: Path,
     store_base: Path,
+    apply_migration_guard: bool = True,
 ) -> tuple[list[MessageEvent], int]:
     """Parse new main-thread messages from *transcript_path* since the last cursor.
 
-    Migration heuristic: if no cursor file exists but the session already has
-    stored events, skip backfill by advancing the cursor to the current end of
-    the transcript.  This prevents flooding existing sessions with retrospective
-    MessageEvents.
+    Migration heuristic (applies only when *apply_migration_guard* is True): if
+    no cursor file exists but the session already has stored events, skip
+    backfill by advancing the cursor to the current end of the transcript.
+    Disable for the pipeline path which relies on UUID deduplication instead.
 
     Returns:
         (message_events, new_line_count)  — caller must persist new_line_count.
@@ -132,7 +133,11 @@ def parse_transcript_messages(
     stored_cursor = read_cursor(cursor_path)
 
     # Migration guard: cursor file absent + session already has stored events → skip backfill.
-    if stored_cursor is None and session_has_stored_events(store_base, session_id):
+    if (
+        apply_migration_guard
+        and stored_cursor is None
+        and session_has_stored_events(store_base, session_id)
+    ):
         logger.debug(
             "Transcript migration: initialising cursor to %d for existing session %s",
             total_lines,
