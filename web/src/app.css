@@ -1078,3 +1078,164 @@ html, body, #root {
   flex: 1;
   min-height: 0;
 }
+
+/* ---- Settings Page ---- */
+.settings-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  color: var(--text);
+}
+
+.settings-page h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.settings-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.settings-field label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-field input,
+.settings-field select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-field input:focus,
+.settings-field select:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.btn-test,
+.btn-save {
+  padding: 7px 18px;
+  border-radius: 4px;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.btn-test:disabled,
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-test {
+  background: #2a3550;
+  color: #7ab3ff;
+  border: 1px solid #3a4d70;
+}
+
+.btn-test:hover:not(:disabled) {
+  background: #334060;
+}
+
+.btn-save {
+  background: #1a6b3e;
+  color: #7effc2;
+  border: 1px solid #267850;
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #207848;
+}
+
+.settings-test-result {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.settings-test-result.ok {
+  background: #0e2e1e;
+  color: #7effc2;
+  border: 1px solid #1a5c38;
+}
+
+.settings-test-result.fail {
+  background: #2e0e0e;
+  color: #ffa0a0;
+  border: 1px solid #5c1a1a;
+}
+
+.settings-save-ok {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #7effc2;
+}
+
+.settings-save-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #ffa0a0;
+}
+
+.conv-summarize-btn {
+  background: #1a2840;
+  border: 1px solid #2a4070;
+  color: #7ab3ff;
+  border-radius: 3px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background 0.1s;
+}
+
+.conv-summarize-btn:hover:not(:disabled) {
+  background: #223260;
+}
+
+.conv-summarize-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

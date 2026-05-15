@@ -133,6 +133,14 @@ class SummaryTopicPipeline:
         finally:
             logger.info("Summary/Topic pipeline stopped.")
 
+    def update_summarizer(self, backend: Optional[SummarizerBackend]) -> None:
+        """Swap the active summarizer backend without restarting the loop.
+
+        The change takes effect at the start of the next pipeline pass.
+        Passing None disables summarization.
+        """
+        self._summarizer = backend
+
     def stop(self) -> None:
         """Signal run_loop() to exit after the current pass finishes."""
         self._running = False

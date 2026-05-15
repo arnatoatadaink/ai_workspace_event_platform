@@ -246,3 +246,85 @@ export async function analyzeSession(sessionId: string): Promise<AnalyzeResponse
   if (!res.ok) throw new Error(`POST /sessions/${sessionId}/analyze: ${res.status}`);
   return res.json();
 }
+
+export type BackendKind = "openai_compat" | "claude";
+
+export interface SummarizerSettingsResponse {
+  backend: BackendKind;
+  base_url: string;
+  api_key_masked: string;
+  model: string;
+}
+
+export interface SummarizerSettingsPut {
+  backend?: BackendKind;
+  base_url?: string;
+  api_key?: string;
+  model?: string;
+}
+
+export interface TestConnectionRequest {
+  backend: BackendKind;
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface TestConnectionResponse {
+  ok: boolean;
+  model_used: string;
+  latency_ms: number;
+  error?: string;
+}
+
+export async function fetchSummarizerSettings(): Promise<SummarizerSettingsResponse> {
+  const res = await fetch(`${BASE}/settings/summarizer`);
+  if (!res.ok) throw new Error(`GET /settings/summarizer: ${res.status}`);
+  return res.json();
+}
+
+export async function putSummarizerSettings(
+  body: SummarizerSettingsPut,
+): Promise<SummarizerSettingsResponse> {
+  const res = await fetch(`${BASE}/settings/summarizer`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail.detail ?? `PUT /settings/summarizer: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function testSummarizerConnection(
+  body: TestConnectionRequest,
+): Promise<TestConnectionResponse> {
+  const res = await fetch(`${BASE}/settings/summarizer/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST /settings/summarizer/test: ${res.status}`);
+  return res.json();
+}
+
+export interface SummarizeOneResponse {
+  conversation_id: string;
+  summary_short: string;
+  summary_long: string;
+  topics: string[];
+  model_used: string;
+  was_cached: boolean;
+}
+
+export async function summarizeConversation(
+  conversationId: string,
+): Promise<SummarizeOneResponse> {
+  const res = await fetch(`${BASE}/conversations/${conversationId}/summarize`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`POST /conversations/${conversationId}/summarize: ${res.status}`);
+  return res.json();
+}

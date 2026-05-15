@@ -235,9 +235,12 @@ React フロントエンド:
 - ⬜ Stop Hookには追加しない（オーバーヘッド大）—on-demand実行のみ: `pytest tests/ --typeguard-packages=src`
 
 #### 要約プロバイダー設定画面（WebGUI）
-- ⬜ `GET /settings/summarizer` / `PUT /settings/summarizer` — プロバイダー設定API（backend種別・base_url・api_key・model を runtime/settings.json に永続化）
-- ⬜ `SettingsPage.tsx` — 要約バックエンド設定フォーム（OpenAI互換 / Claude API 切り替え、base_url・model入力、テスト接続ボタン）
-- ⬜ `GET /conversations/{id}/summarize` 結果をWebGUIの会話リストに反映（要約ボタン追加）
+- ✅ `GET /settings/summarizer` / `PUT /settings/summarizer` / `POST /settings/summarizer/test` — プロバイダー設定API（backend種別・base_url・api_key・model を runtime/settings.json に永続化、APIキーはGETでマスク）
+- ✅ `src/api/settings_store.py` — 設定読み書き・APIキーマスク・バックエンド構築ヘルパー（ファイルモード 0600）
+- ✅ `SummaryTopicPipeline.update_summarizer()` — ランタイム差し替えセッター追加
+- ✅ `src/api/main.py` — lifespan で runtime/settings.json から設定を読み込みバックエンドを初期化
+- ✅ `SettingsPage.tsx` — 要約バックエンド設定フォーム（OpenAI互換 / Claude API 切り替え、base_url・model入力、テスト接続ボタン・保存フィードバック）
+- ✅ `ConversationPane.tsx` — 未要約会話に「要約する」ボタン追加（クリックで即時反映）
 
 ---
 

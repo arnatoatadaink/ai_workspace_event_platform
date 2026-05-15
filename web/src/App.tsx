@@ -4,11 +4,12 @@ import { ChatPane } from "./ChatPane";
 import { DetailSidebar } from "./DetailSidebar";
 import { HomePage } from "./HomePage";
 import { DataFlowPage } from "./pages/DataFlowPage";
+import SettingsPage from "./pages/SettingsPage";
 import { SessionList } from "./SessionList";
 import { UmapPage } from "./UmapPage";
 import "./app.css";
 
-type Page = "home" | "events" | "umap" | "dataflow";
+type Page = "home" | "events" | "umap" | "dataflow" | "settings";
 
 const LS_LAST_SESSION = "awep:lastSession";
 const LS_SIDEBAR_OPEN = "awep:sidebarOpen";
@@ -77,6 +78,12 @@ export function App() {
           >
             データフロー
           </button>
+          <button
+            className={`nav-btn${page === "settings" ? " active" : ""}`}
+            onClick={() => setPage("settings")}
+          >
+            設定
+          </button>
         </nav>
         <span className="app-title">AI Workspace Event Platform</span>
       </header>
@@ -100,6 +107,12 @@ export function App() {
       {page === "dataflow" && (
         <main className="dataflow-wrapper">
           <DataFlowPage />
+        </main>
+      )}
+
+      {page === "settings" && (
+        <main className="home-wrapper">
+          <SettingsPage />
         </main>
       )}
 

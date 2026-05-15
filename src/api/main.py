@@ -25,15 +25,16 @@ from src.api.routers import (
     ingest,
     plugins,
     sessions,
+    settings,
     summarize,
     topics,
     umap,
     ws,
 )
+from src.api.settings_store import build_backend, load_summarizer_settings
 from src.replay.db import ConversationsDB
 from src.replay.pipeline import SummaryTopicPipeline
 from src.replay.snapshot_store import SnapshotStore
-from src.replay.summarizer import OpenAICompatBackend
 from src.store.event_store import EventStore
 
 
@@ -47,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     snapshot_store = SnapshotStore()
     await snapshot_store.connect()
 
-    summarizer = OpenAICompatBackend()
+    summarizer = build_backend(load_summarizer_settings())
     pipeline = SummaryTopicPipeline(
         store=store,
         db=db,
@@ -107,3 +108,4 @@ app.include_router(ws.router)
 app.include_router(claude_scan.router)
 app.include_router(umap.router)
 app.include_router(dataflow.router)
+app.include_router(settings.router)
