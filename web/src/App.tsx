@@ -5,11 +5,12 @@ import { DetailSidebar } from "./DetailSidebar";
 import { HomePage } from "./HomePage";
 import { DataFlowPage } from "./pages/DataFlowPage";
 import SettingsPage from "./pages/SettingsPage";
+import { TopicGraphPage } from "./pages/TopicGraphPage";
 import { SessionList } from "./SessionList";
 import { UmapPage } from "./UmapPage";
 import "./app.css";
 
-type Page = "home" | "events" | "umap" | "dataflow" | "settings";
+type Page = "home" | "events" | "umap" | "topic-graph" | "dataflow" | "settings";
 
 const LS_LAST_SESSION = "awep:lastSession";
 const LS_SIDEBAR_OPEN = "awep:sidebarOpen";
@@ -73,6 +74,12 @@ export function App() {
             トピックマップ
           </button>
           <button
+            className={`nav-btn${page === "topic-graph" ? " active" : ""}`}
+            onClick={() => setPage("topic-graph")}
+          >
+            トピックグラフ
+          </button>
+          <button
             className={`nav-btn${page === "dataflow" ? " active" : ""}`}
             onClick={() => setPage("dataflow")}
           >
@@ -101,6 +108,12 @@ export function App() {
       {page === "umap" && (
         <main className="home-wrapper">
           <UmapPage />
+        </main>
+      )}
+
+      {page === "topic-graph" && (
+        <main className="topic-graph-wrapper">
+          <TopicGraphPage />
         </main>
       )}
 

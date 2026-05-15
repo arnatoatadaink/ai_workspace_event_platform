@@ -27,6 +27,7 @@ from src.api.routers import (
     sessions,
     settings,
     summarize,
+    topic_graph,
     topics,
     umap,
     ws,
@@ -108,4 +109,5 @@ app.include_router(ws.router)
 app.include_router(claude_scan.router)
 app.include_router(umap.router)
 app.include_router(dataflow.router)
+app.include_router(topic_graph.router)
 app.include_router(settings.router)
