@@ -228,11 +228,13 @@ React フロントエンド:
 - ✅ `web/package.json` `pnpm.onlyBuiltDependencies` に `esbuild` 追加 + pnpm-lock.yaml 再生成（esbuild ビルドスクリプト承認）
 
 #### 動的型不一致検出（typeguard + AST + CGA）
-- ⬜ `typeguard` を dev依存に追加（`poetry add --group dev typeguard`）
-- ⬜ `src/analysis/call_graph.py` に `build_reverse_call_graph()` 追加（callee→callers逆引き）
-- ⬜ `src/analysis/dynamic_checker.py` — TypeCheckErrorパース + 既存AST/CGA統合 + レポート生成（JSON/Markdown）
-- ⬜ `tests/test_dynamic_checker.py` — typeguard有効化時のTypeCheckError検出・AST復元・CGA逆引きテスト
-- ⬜ Stop Hookには追加しない（オーバーヘッド大）—on-demand実行のみ: `pytest tests/ --typeguard-packages=src`
+- ✅ `typeguard` を dev依存に追加（`poetry add --group dev typeguard`）
+- ✅ `src/analysis/call_graph.py` に `build_reverse_call_graph()` 追加（callee→callers逆引き）
+- ✅ `src/analysis/dynamic_capture.py` — pytest hookwrapper（`pytest_runtest_makereport`）で TypeCheckError を `runtime/dynamic_check_events.jsonl` に JSONL 書き出し。`parse_typeguard_message()` / `extract_user_frames()` ヘルパー付き
+- ✅ `src/analysis/dynamic_checker.py` — JSONL 読み込み + AST/CGA 結合 + JSON/Markdown レポート生成（`run_check()` CLI エントリーポイント）
+- ✅ `tests/conftest.py` — `pytest_plugins = ["src.analysis.dynamic_capture"]` でプラグイン登録
+- ✅ `tests/test_dynamic_checker.py` — 22テスト全GREEN（メッセージパース・フレーム抽出・逆CGA・イベント読み込み・エンリッチ・レポート生成・統合）
+- ✅ Stop Hookには追加しない（オーバーヘッド大）— on-demand実行のみ: `pytest tests/ --typeguard-packages=src` → `python -m src.analysis.dynamic_checker`
 
 #### 要約プロバイダー設定画面（WebGUI）
 - ✅ `GET /settings/summarizer` / `PUT /settings/summarizer` / `POST /settings/summarizer/test` — プロバイダー設定API（backend種別・base_url・api_key・model を runtime/settings.json に永続化、APIキーはGETでマスク）

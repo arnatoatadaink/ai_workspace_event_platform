@@ -14,6 +14,14 @@ class CallEdge:
     call_site: CallSiteInfo
 
 
+def build_reverse_call_graph(edges: list[CallEdge]) -> dict[str, list[CallEdge]]:
+    """Return a mapping from callee qualified_name to all CallEdges that target it."""
+    reverse: dict[str, list[CallEdge]] = {}
+    for edge in edges:
+        reverse.setdefault(edge.callee.qualified_name, []).append(edge)
+    return reverse
+
+
 def build_call_graph(
     functions: list[FunctionInfo],
     call_sites: list[CallSiteInfo],
