@@ -24,6 +24,7 @@ _COLUMNS = (
     "event_index_end",
     "created_at",
     "message_count",
+    "project_id",
 )
 
 _SUMMARY_COLUMNS = (
@@ -73,6 +74,7 @@ _CONV_LEFT_JOIN_COLUMNS = (
     "event_index_end",
     "summary_short",
     "topics",
+    "project_id",
 )
 
 
@@ -132,14 +134,29 @@ class ConversationsDB:
                 event_index_start INTEGER NOT NULL,
                 event_index_end   INTEGER NOT NULL,
                 created_at        TEXT NOT NULL,
-                message_count     INTEGER NOT NULL DEFAULT 0
+                message_count     INTEGER NOT NULL DEFAULT 0,
+                project_id        TEXT NOT NULL DEFAULT ''
             )
             """
         )
+        # Migration: add project_id to existing databases that predate this column.
+        try:
+            await self._conn.execute(
+                "ALTER TABLE conversations ADD COLUMN project_id TEXT NOT NULL DEFAULT ''"
+            )
+            await self._conn.commit()
+        except Exception:
+            pass  # column already exists
         await self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_conversations_session_created
             ON conversations (session_id, created_at DESC)
+            """
+        )
+        await self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversations_project_created
+            ON conversations (project_id, created_at DESC)
             """
         )
         await self._conn.execute(
@@ -182,6 +199,7 @@ class ConversationsDB:
         event_index_end: int,
         created_at: datetime,
         message_count: int,
+        project_id: str = "",
     ) -> None:
         """Insert a new conversation index record."""
         assert self._conn is not None
@@ -189,8 +207,8 @@ class ConversationsDB:
             """
             INSERT INTO conversations
               (conversation_id, session_id, chunk_file_first, chunk_file_last,
-               event_index_start, event_index_end, created_at, message_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               event_index_start, event_index_end, created_at, message_count, project_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -201,6 +219,7 @@ class ConversationsDB:
                 event_index_end,
                 created_at.isoformat(),
                 message_count,
+                project_id,
             ),
         )
         await self._conn.commit()
@@ -233,7 +252,7 @@ class ConversationsDB:
             cur = await self._conn.execute(
                 """
                 SELECT conversation_id, session_id, chunk_file_first, chunk_file_last,
-                       event_index_start, event_index_end, created_at, message_count
+                       event_index_start, event_index_end, created_at, message_count, project_id
                 FROM conversations
                 WHERE session_id = ?
                 ORDER BY created_at DESC
@@ -253,7 +272,7 @@ class ConversationsDB:
             cur = await self._conn.execute(
                 """
                 SELECT conversation_id, session_id, chunk_file_first, chunk_file_last,
-                       event_index_start, event_index_end, created_at, message_count
+                       event_index_start, event_index_end, created_at, message_count, project_id
                 FROM conversations
                 WHERE session_id = ? AND created_at < ?
                 ORDER BY created_at DESC
@@ -271,7 +290,7 @@ class ConversationsDB:
         cur = await self._conn.execute(
             """
             SELECT conversation_id, session_id, chunk_file_first, chunk_file_last,
-                   event_index_start, event_index_end, created_at, message_count
+                   event_index_start, event_index_end, created_at, message_count, project_id
             FROM conversations
             WHERE conversation_id = ?
             """,
@@ -365,7 +384,7 @@ class ConversationsDB:
         cur = await self._conn.execute(
             """
             SELECT conversation_id, session_id, chunk_file_first, chunk_file_last,
-                   event_index_start, event_index_end, created_at, message_count
+                   event_index_start, event_index_end, created_at, message_count, project_id
             FROM conversations
             ORDER BY created_at DESC
             LIMIT ?
@@ -374,6 +393,27 @@ class ConversationsDB:
         )
         rows = await cur.fetchall()
         return [_row_to_dict(row) for row in rows]
+
+    async def get_project_ids_for_sessions(self, session_ids: list[str]) -> dict[str, str]:
+        """Return {session_id: project_id} for sessions that have conversation records.
+
+        Sessions without any conversation record are omitted from the result.
+        """
+        assert self._conn is not None
+        if not session_ids:
+            return {}
+        placeholders = ",".join("?" * len(session_ids))
+        cur = await self._conn.execute(
+            f"""
+            SELECT session_id, project_id
+            FROM conversations
+            WHERE session_id IN ({placeholders})
+            GROUP BY session_id
+            """,
+            session_ids,
+        )
+        rows = await cur.fetchall()
+        return {row[0]: row[1] for row in rows}
 
     async def get_conversations_with_summaries(
         self,
@@ -440,7 +480,7 @@ class ConversationsDB:
                 """
                 SELECT c.conversation_id, c.session_id, c.created_at, c.message_count,
                        c.event_index_start, c.event_index_end,
-                       cs.summary_short, cs.topics
+                       cs.summary_short, cs.topics, c.project_id
                 FROM conversations c
                 LEFT JOIN conversation_summaries cs
                        ON c.conversation_id = cs.conversation_id
@@ -463,7 +503,7 @@ class ConversationsDB:
                 """
                 SELECT c.conversation_id, c.session_id, c.created_at, c.message_count,
                        c.event_index_start, c.event_index_end,
-                       cs.summary_short, cs.topics
+                       cs.summary_short, cs.topics, c.project_id
                 FROM conversations c
                 LEFT JOIN conversation_summaries cs
                        ON c.conversation_id = cs.conversation_id
@@ -509,7 +549,8 @@ class ConversationsDB:
         cur = await self._conn.execute(
             """
             SELECT c.conversation_id, c.session_id, c.chunk_file_first, c.chunk_file_last,
-                   c.event_index_start, c.event_index_end, c.created_at, c.message_count
+                   c.event_index_start, c.event_index_end, c.created_at, c.message_count,
+                   c.project_id
             FROM conversations c
             LEFT JOIN conversation_summaries cs
                    ON c.conversation_id = cs.conversation_id

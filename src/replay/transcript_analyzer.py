@@ -122,6 +122,7 @@ async def _insert_conversation(
     session_id: str,
     events: list[tuple[int, str, InternalEvent]],
     db: ConversationsDB,
+    project_id: str = "",
 ) -> None:
     """Insert one conversation record for the given event slice."""
     msg_count = sum(1 for _, _, ev in events if ev.event_type == EventType.MESSAGE)
@@ -141,6 +142,7 @@ async def _insert_conversation(
         event_index_end=end_idx,
         created_at=first_ts,
         message_count=msg_count,
+        project_id=project_id,
     )
 
 
@@ -149,6 +151,7 @@ async def _analyze_by_turn_ends(
     events: list[tuple[int, str, InternalEvent]],
     turn_ends: list[datetime],
     db: ConversationsDB,
+    project_id: str = "",
 ) -> int:
     """Group *events* into conversations using ``turn_duration`` boundary timestamps.
 
@@ -166,14 +169,14 @@ async def _analyze_by_turn_ends(
             continue
         remaining = [(idx, cn, ev) for idx, cn, ev in remaining if ev.timestamp > turn_end]
         before = await _count_conversations(db, session_id)
-        await _insert_conversation(session_id, turn_events, db)
+        await _insert_conversation(session_id, turn_events, db, project_id=project_id)
         after = await _count_conversations(db, session_id)
         new_rows += after - before
 
     # Trailing events after the last known turn boundary (conversation in progress).
     if remaining:
         before = await _count_conversations(db, session_id)
-        await _insert_conversation(session_id, remaining, db)
+        await _insert_conversation(session_id, remaining, db, project_id=project_id)
         after = await _count_conversations(db, session_id)
         new_rows += after - before
 
@@ -189,10 +192,11 @@ async def _analyze_as_single_conversation(
     session_id: str,
     events: list[tuple[int, str, InternalEvent]],
     db: ConversationsDB,
+    project_id: str = "",
 ) -> int:
     """Treat all events as one conversation (fallback for sessions without turn markers)."""
     before = await _count_conversations(db, session_id)
-    await _insert_conversation(session_id, events, db)
+    await _insert_conversation(session_id, events, db, project_id=project_id)
     after = await _count_conversations(db, session_id)
     return after - before
 
@@ -207,6 +211,7 @@ async def analyze_transcript_session(
     transcript_path: Optional[Path],
     store: EventStore,
     db: ConversationsDB,
+    project_id: str = "",
 ) -> int:
     """Create conversation records for store events not yet covered by any DB record.
 
@@ -224,6 +229,8 @@ async def analyze_transcript_session(
         transcript_path: Path to the Claude CLI transcript JSONL, or None.
         store: Source EventStore (read-only).
         db: Open ConversationsDB to write index rows into.
+        project_id: Slug-style project identifier derived from the transcript
+            parent directory (``~/.claude/projects/<slug>``).
 
     Returns:
         Number of new conversation rows inserted.
@@ -259,7 +266,9 @@ async def analyze_transcript_session(
             len(all_events),
             len(turn_ends),
         )
-        return await _analyze_by_turn_ends(session_id, uncovered, turn_ends, db)
+        return await _analyze_by_turn_ends(
+            session_id, uncovered, turn_ends, db, project_id=project_id
+        )
 
     logger.info(
         "Analyzing session %s: %d uncovered events, no turn boundaries"
@@ -267,4 +276,6 @@ async def analyze_transcript_session(
         session_id,
         len(uncovered),
     )
-    return await _analyze_as_single_conversation(session_id, uncovered, db)
+    return await _analyze_as_single_conversation(
+        session_id, uncovered, db, project_id=project_id
+    )

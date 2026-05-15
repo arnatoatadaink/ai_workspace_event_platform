@@ -5,6 +5,12 @@ export interface SessionInfo {
   event_count: number;
   started_at: string;
   last_event_at: string;
+  project_id: string | null;
+}
+
+export interface ProjectInfo {
+  project_id: string;
+  session_count: number;
 }
 
 export interface EventItem {
@@ -142,6 +148,7 @@ export async function fetchHealth(): Promise<boolean> {
 
 export interface ScannedSession {
   session_id: string;
+  project_id: string;
   message_count: number;
   first_message_at: string | null;
   last_message_at: string | null;
@@ -214,12 +221,24 @@ export async function fetchUmap(opts?: {
   return res.json();
 }
 
-export async function fetchScannedSessions(scanDir?: string): Promise<ScannedSession[]> {
+export async function fetchScannedSessions(opts?: {
+  scanDir?: string;
+  projectId?: string;
+  allProjects?: boolean;
+}): Promise<ScannedSession[]> {
   const params = new URLSearchParams();
-  if (scanDir) params.set("scan_dir", scanDir);
+  if (opts?.scanDir) params.set("scan_dir", opts.scanDir);
+  if (opts?.projectId) params.set("project_id", opts.projectId);
+  if (opts?.allProjects) params.set("all_projects", "true");
   const query = params.size > 0 ? `?${params}` : "";
   const res = await fetch(`${BASE}/claude/scan-sessions${query}`);
   if (!res.ok) throw new Error(`GET /claude/scan-sessions: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchScannedProjects(): Promise<ProjectInfo[]> {
+  const res = await fetch(`${BASE}/claude/scan-projects`);
+  if (!res.ok) throw new Error(`GET /claude/scan-projects: ${res.status}`);
   return res.json();
 }
 

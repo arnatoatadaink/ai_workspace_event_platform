@@ -15,6 +15,12 @@ import {
   type SessionStats,
 } from "./api";
 
+function slugToDisplayPath(slug: string): string {
+  // Reverse the slug: replace leading/trailing hyphens and convert runs of
+  // hyphens back to path separators (best-effort display only).
+  return "/" + slug.replace(/^-+/, "").replace(/-+$/, "").replace(/-/g, "/");
+}
+
 const STATUS_LABEL: Record<string, string> = {
   active: "稼働中",
   available: "未設定",
@@ -105,7 +111,7 @@ export function HomePage({ onOpenSession, sessions, onSessionsRefresh }: Props) 
       .then(setPlugins)
       .catch((e: unknown) => setError(String(e)));
     fetchHealth().then(setApiOnline);
-    fetchScannedSessions()
+    fetchScannedSessions({ allProjects: true })
       .then(setScannedSessions)
       .catch(() => setScannedSessions([]));
   }, []);
@@ -136,7 +142,7 @@ export function HomePage({ onOpenSession, sessions, onSessionsRefresh }: Props) 
   async function handleRefresh(sessionId: string) {
     setActionLoading((prev) => ({ ...prev, [sessionId]: "refreshing" }));
     try {
-      const updated = await fetchScannedSessions();
+      const updated = await fetchScannedSessions({ allProjects: true });
       setScannedSessions(updated);
       const stats = await fetchSessionStats(sessionId);
       setSessionStats((prev) => ({ ...prev, [sessionId]: stats }));
@@ -341,108 +347,126 @@ export function HomePage({ onOpenSession, sessions, onSessionsRefresh }: Props) 
         </table>
       </section>
 
-      {/* Claude CLIセッション（ログから） */}
+      {/* Claude CLI セッション（プロジェクト別） */}
       <section className="home-section">
         <h2 className="home-section-title">
           Claude CLI セッション（ログから）
           <span className="section-badge">{scannedSessions.length}</span>
         </h2>
-        <table className="session-table">
-          <thead>
-            <tr>
-              <th>セッションID</th>
-              <th>メッセージ数</th>
-              <th>最終更新</th>
-              <th>状態</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scannedSessions.map((s) => {
-              const isIngested = ingestedIds.has(s.session_id);
-              const stats = sessionStats[s.session_id];
-              const status = getSessionStatus(isIngested, stats);
-              const loading = actionLoading[s.session_id];
-              const showIngest = status === "未取込" || status === "取込中";
-              const showAnalyze = isIngested && !!stats && stats.has_unanalyzed_events;
-              const showSummarize =
-                isIngested &&
-                !!stats &&
-                stats.conversation_count > 0 &&
-                stats.summarized_count < stats.conversation_count;
-              return (
-                <tr key={s.session_id} className="session-table-row">
-                  <td className="session-table-id">
-                    <code>{s.session_id.slice(0, 8)}…</code>
-                  </td>
-                  <td>{s.message_count}</td>
-                  <td>
-                    {s.last_message_at
-                      ? new Date(s.last_message_at).toLocaleString("ja-JP")
-                      : "─"}
-                  </td>
-                  <td>
-                    <span className={`status-badge ${SESSION_STATUS_CLASS[status]}`}>
-                      {status}
-                    </span>
-                    {stats && (
-                      <span className="session-conv-count">
-                        {stats.summarized_count}/{stats.conversation_count}
-                      </span>
-                    )}
-                  </td>
-                  <td className="session-actions">
-                    <button
-                      className="btn-ghost"
-                      disabled={!!loading}
-                      onClick={() => void handleRefresh(s.session_id)}
-                      title="新規会話を確認"
-                    >
-                      {loading === "refreshing" ? "確認中…" : "更新"}
-                    </button>
-                    {showIngest && (
-                      <button
-                        className="btn-ghost"
-                        disabled={!!loading}
-                        onClick={() => void handleIngest(s.session_id)}
-                        title="未取込の会話をイベントストアに取り込む"
-                      >
-                        {loading === "ingesting" ? "取込中…" : "取込"}
-                      </button>
-                    )}
-                    {showAnalyze && (
-                      <button
-                        className="btn-ghost"
-                        disabled={!!loading}
-                        onClick={() => void handleAnalyze(s.session_id)}
-                        title="取込済のデータを会話単位に分析する"
-                      >
-                        {loading === "analyzing" ? "分析中…" : "分析"}
-                      </button>
-                    )}
-                    {showSummarize && (
-                      <button
-                        className="btn-ghost"
-                        disabled={!!loading}
-                        onClick={() => void handleSummarize(s.session_id)}
-                        title="未要約の会話を要約する"
-                      >
-                        {loading === "summarizing" ? "要約中…" : "要約"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {scannedSessions.length === 0 && (
-              <tr>
-                <td colSpan={5} className="table-empty">
-                  セッションが見つかりません
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        {(() => {
+          // Group sessions by project_id.
+          const groups = new Map<string, ScannedSession[]>();
+          for (const s of scannedSessions) {
+            const pid = s.project_id || "(不明)";
+            if (!groups.has(pid)) groups.set(pid, []);
+            groups.get(pid)!.push(s);
+          }
+          if (groups.size === 0) {
+            return (
+              <p className="table-empty">セッションが見つかりません</p>
+            );
+          }
+          return Array.from(groups.entries()).map(([pid, sessions]) => (
+            <div key={pid} className="project-group">
+              <div className="project-group-header">
+                <span className="project-group-label">プロジェクト</span>
+                <code className="project-group-path" title={pid}>
+                  {slugToDisplayPath(pid)}
+                </code>
+                <span className="section-badge">{sessions.length}</span>
+              </div>
+              <table className="session-table">
+                <thead>
+                  <tr>
+                    <th>セッションID</th>
+                    <th>メッセージ数</th>
+                    <th>最終更新</th>
+                    <th>状態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => {
+                    const isIngested = ingestedIds.has(s.session_id);
+                    const stats = sessionStats[s.session_id];
+                    const status = getSessionStatus(isIngested, stats);
+                    const loading = actionLoading[s.session_id];
+                    const showIngest = status === "未取込" || status === "取込中";
+                    const showAnalyze = isIngested && !!stats && stats.has_unanalyzed_events;
+                    const showSummarize =
+                      isIngested &&
+                      !!stats &&
+                      stats.conversation_count > 0 &&
+                      stats.summarized_count < stats.conversation_count;
+                    return (
+                      <tr key={s.session_id} className="session-table-row">
+                        <td className="session-table-id">
+                          <code>{s.session_id.slice(0, 8)}…</code>
+                        </td>
+                        <td>{s.message_count}</td>
+                        <td>
+                          {s.last_message_at
+                            ? new Date(s.last_message_at).toLocaleString("ja-JP")
+                            : "─"}
+                        </td>
+                        <td>
+                          <span className={`status-badge ${SESSION_STATUS_CLASS[status]}`}>
+                            {status}
+                          </span>
+                          {stats && (
+                            <span className="session-conv-count">
+                              {stats.summarized_count}/{stats.conversation_count}
+                            </span>
+                          )}
+                        </td>
+                        <td className="session-actions">
+                          <button
+                            className="btn-ghost"
+                            disabled={!!loading}
+                            onClick={() => void handleRefresh(s.session_id)}
+                            title="新規会話を確認"
+                          >
+                            {loading === "refreshing" ? "確認中…" : "更新"}
+                          </button>
+                          {showIngest && (
+                            <button
+                              className="btn-ghost"
+                              disabled={!!loading}
+                              onClick={() => void handleIngest(s.session_id)}
+                              title="未取込の会話をイベントストアに取り込む"
+                            >
+                              {loading === "ingesting" ? "取込中…" : "取込"}
+                            </button>
+                          )}
+                          {showAnalyze && (
+                            <button
+                              className="btn-ghost"
+                              disabled={!!loading}
+                              onClick={() => void handleAnalyze(s.session_id)}
+                              title="取込済のデータを会話単位に分析する"
+                            >
+                              {loading === "analyzing" ? "分析中…" : "分析"}
+                            </button>
+                          )}
+                          {showSummarize && (
+                            <button
+                              className="btn-ghost"
+                              disabled={!!loading}
+                              onClick={() => void handleSummarize(s.session_id)}
+                              title="未要約の会話を要約する"
+                            >
+                              {loading === "summarizing" ? "要約中…" : "要約"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ));
+        })()}
       </section>
 
       {/* 最近のセッション */}

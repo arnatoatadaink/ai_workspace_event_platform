@@ -254,14 +254,20 @@ React フロントエンド:
 - ✅ 時間窓フィルタ（since / until クエリパラメータ、`GET /umap`）
 - ✅ `GET /umap` FastAPIエンドポイント（session_id / since / until / color_by 対応）
 - ✅ トピックマップページ（`UmapPage.tsx`）— GUI第3ページとして追加
-- ⬜ Multi-source adapter（webchat / Discord Bot / Gemini CLI）
+- ⏸ Multi-source adapter（webchat / Discord Bot / Gemini CLI）
   > ⚠️ **規約懸念**: 各プラットフォームの利用規約・API Terms of Service を実装前に確認すること。
   > - **Discord Bot**: Discord ToS § 2.5 / Developer Policy — ユーザーメッセージの第三者ストレージは原則禁止。Bot 経由の自動収集はサーバー管理者の同意とユーザーへの開示が必要。
   > - **Webchat（LINE/Slack 等）**: 各社の Developer Agreement により取得データの目的外利用・再配布が制限される場合がある。Slack の場合は Customer Data の定義とデータ処理補足書（DPA）の確認が必須。
   > - **Gemini CLI**: Google API Terms of Service / Generative AI Additional Terms — Google サービスを経由したデータのローカル永続化可否を確認すること。
   > - **共通**: 個人情報保護法（日本）・GDPR（EU）の観点から、個人を特定しうるチャットログの保存・処理にはデータ主体の同意フローと削除対応が必要になる可能性がある。
-- ⬜ Cross-session topic graph
-- ⬜ TemporalVectorKB統合
+- ✅ Cross-session topic graph
+  - `src/replay/topic_graph.py` — `_aggregate_rows` / `_scale_to_canvas` / `_build_edges` 純粋関数 + `build_topic_graph()` async オーケストレーター
+  - `src/api/routers/topic_graph.py` — `GET /topic-graph`（min_topic_count / min_shared_sessions パラメータ）
+  - `web/src/pages/TopicGraphPage.tsx` — ReactFlow + UMAP座標配置、セッション数カラー、サイズ＝出現頻度、詳細パネル
+  - `tests/test_topic_graph.py` — 17テスト全GREEN（純粋関数単体テスト）
+- ✅ TemporalVectorKB統合（下地完了として閉じる）
+  - UMAP + 埋め込みキャッシュ（DB）が設計 §3 の「下地整備」に相当
+  - topic vector k-NN クエリ・時間軸スライスは将来ステップへ持ち越し
 
 ---
 
@@ -300,4 +306,18 @@ React フロントエンド:
 #### 既知バグ（低優先度）
 - ⬜ **会話数 +1 重複表示**: ホームタブの会話カウント（`summarized_count/conversation_count`）が実際より1多く表示されることがある。`analyze_transcript_session` が trailing events を会話として保存する際、既存レコードと境界が重なって二重計上されている可能性がある。影響は表示のみ（データ破壊なし）。優先度: 低。
 
-_最終更新: 2026-05-13 — パイプライン別系統化（stop hook から独立した取り込み/分析・UUID 重複排除・共存 analyze）_
+#### CrossProject処理（2026-05-16）
+- ✅ `conversations` テーブルに `project_id TEXT` カラム追加（ALTER TABLE マイグレーション + 新規テーブル定義）
+- ✅ `GET /claude/scan-projects` 新設（`~/.claude/projects/*` を列挙）
+- ✅ `GET /claude/scan-sessions` に `project_id` / `all_projects` クエリパラメータ追加（全プロジェクト横断スキャン）
+- ✅ `POST /sessions/{id}/analyze` — transcript パスから `project_id` を自動導出（全プロジェクト検索フォールバック付き）
+- ✅ `GET /sessions` レスポンスに `project_id` を追加（DB問い合わせ）
+- ✅ `_has_pending_transcript` を全プロジェクト横断検索に変更
+- ✅ `web/src/api.ts` — `SessionInfo` / `ScannedSession` に `project_id` 追加、`ProjectInfo` 型・`fetchScannedProjects()` 追加
+- ✅ `HomePage.tsx` — セッション一覧をプロジェクト別グループ表示（スラグ → パス逆変換）
+- ✅ `scripts/install-hooks.sh` — Hook設定インストーラースクリプト（Stop / PreToolUse / PostToolUse、jq/Python両対応、べき等）
+
+#### CrossProject 保留・バックログ
+- ⬜ **プラットフォーム丸ごとインストール** — API + DB + GUI を別環境に一括展開（Docker化 / setup.sh）。スコープが大きいため将来ステップ。
+
+_最終更新: 2026-05-16 — CrossProject 処理実装: project_id DB列追加 / 全プロジェクト横断スキャン / GUI プロジェクトグループ表示 / Hook インストーラースクリプト_

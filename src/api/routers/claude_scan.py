@@ -36,15 +36,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class ProjectInfo(BaseModel):
+    project_id: str
+    session_count: int
+
+
 class ScannedSession(BaseModel):
     session_id: str
+    project_id: str
     message_count: int
     first_message_at: Optional[str] = None
     last_message_at: Optional[str] = None
     file_size_bytes: int
 
 
-def _scan_jsonl(path: Path) -> ScannedSession:
+def _scan_jsonl(path: Path, project_id: str = "") -> ScannedSession:
     """Extract metadata from a single Claude transcript JSONL file."""
     session_id = path.stem
     size = path.stat().st_size
@@ -65,6 +71,7 @@ def _scan_jsonl(path: Path) -> ScannedSession:
                 last_ts = ts
     return ScannedSession(
         session_id=session_id,
+        project_id=project_id,
         message_count=count,
         first_message_at=first_ts,
         last_message_at=last_ts,
@@ -76,8 +83,35 @@ def _scan_dir(target: Path) -> list[ScannedSession]:
     """Synchronous directory scan — run in a thread."""
     if not target.is_dir():
         return []
+    project_id = target.name
     files = sorted(target.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return [_scan_jsonl(p) for p in files]
+    return [_scan_jsonl(p, project_id) for p in files]
+
+
+def _scan_all_projects() -> list[ScannedSession]:
+    """Scan all Claude CLI project directories under ~/.claude/projects/."""
+    projects_root = Path.home() / ".claude" / "projects"
+    if not projects_root.is_dir():
+        return []
+    sessions: list[ScannedSession] = []
+    for slug_dir in sorted(projects_root.iterdir()):
+        if slug_dir.is_dir():
+            sessions.extend(_scan_dir(slug_dir))
+    sessions.sort(key=lambda s: s.last_message_at or "", reverse=True)
+    return sessions
+
+
+def _list_projects() -> list[ProjectInfo]:
+    """List all Claude CLI projects (slug directories) under ~/.claude/projects/."""
+    projects_root = Path.home() / ".claude" / "projects"
+    if not projects_root.is_dir():
+        return []
+    result: list[ProjectInfo] = []
+    for slug_dir in sorted(projects_root.iterdir()):
+        if slug_dir.is_dir():
+            count = len(list(slug_dir.glob("*.jsonl")))
+            result.append(ProjectInfo(project_id=slug_dir.name, session_count=count))
+    return result
 
 
 def _collect_existing_event_ids(store: EventStore, session_id: str) -> set[str]:
@@ -105,18 +139,39 @@ class IngestResponse(BaseModel):
     skipped_duplicates: int
 
 
+@router.get("/claude/scan-projects", response_model=list[ProjectInfo])
+async def list_projects() -> list[ProjectInfo]:
+    """List all Claude CLI project directories under ~/.claude/projects/."""
+    return await asyncio.to_thread(_list_projects)
+
+
 @router.get("/claude/scan-sessions", response_model=list[ScannedSession])
 async def scan_sessions(
     scan_dir: Optional[str] = Query(
         default=None,
         description="Directory to scan. Defaults to ~/.claude/projects/<cwd-slug>/",
     ),
+    project_id: Optional[str] = Query(
+        default=None,
+        description="Project slug to scan. When set, overrides scan_dir.",
+    ),
+    all_projects: bool = Query(
+        default=False,
+        description="When true, scan all projects under ~/.claude/projects/.",
+    ),
 ) -> list[ScannedSession]:
     """List Claude CLI transcript files found in the given directory.
 
     Returns session metadata without importing events into the store.
     """
-    target = Path(scan_dir).expanduser().resolve() if scan_dir else cwd_to_claude_project_dir()
+    if all_projects:
+        return await asyncio.to_thread(_scan_all_projects)
+    if project_id:
+        target = Path.home() / ".claude" / "projects" / project_id
+    elif scan_dir:
+        target = Path(scan_dir).expanduser().resolve()
+    else:
+        target = cwd_to_claude_project_dir()
     return await asyncio.to_thread(_scan_dir, target)
 
 
@@ -205,17 +260,31 @@ async def analyze_session_transcript(
 
     Returns the number of newly created conversation records.
     """
+    # Resolve transcript from CWD's project dir first; fall back to scanning all projects.
     scan_dir = cwd_to_claude_project_dir()
     transcript_path: Optional[Path] = scan_dir / f"{session_id}.jsonl"
     if not transcript_path.exists():
+        # Search other project directories.
+        projects_root = Path.home() / ".claude" / "projects"
         transcript_path = None
+        if projects_root.is_dir():
+            for slug_dir in projects_root.iterdir():
+                candidate = slug_dir / f"{session_id}.jsonl"
+                if candidate.exists():
+                    transcript_path = candidate
+                    scan_dir = slug_dir
+                    break
+
+    # project_id is the slug directory name that contains the transcript.
+    project_id = scan_dir.name
 
     created = await analyze_transcript_session(
         session_id=session_id,
         transcript_path=transcript_path,
         store=store,
         db=db,
+        project_id=project_id,
     )
 
-    logger.info("Analyze %s: %d conversations created", session_id, created)
+    logger.info("Analyze %s (project=%s): %d conversations created", session_id, project_id, created)
     return AnalyzeResponse(session_id=session_id, conversations_created=created)
