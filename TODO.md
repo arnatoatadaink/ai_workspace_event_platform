@@ -108,7 +108,7 @@
 - ✅ LocalStorage によるセッション・スクロール位置・表示件数の記憶（`awep:lastSession` / `awep:chat:scrollTop:{id}` / `awep:chat:displayCount:{id}`）
 - ✅ Detail サイドバー（`DetailSidebar.tsx`）— 右側に TopicPane / ConversationPane / 生イベントを統合、"Detail ▶" トグルで開閉、状態は `awep:sidebarOpen` に保存
 - ✅ レイアウト変更 — 2×2 グリッド → flex 3カラム（SessionList | ChatPane | DetailSidebar）
-- ⬜ TODO: Stop フックから `transcript_path` が届かないため `event_type: "message"` がストアに存在しない。ChatPane は空状態でTODOメッセージを表示中。transcript_path 疎通を確認すること。
+- ✅ Stop フック `transcript_path` 疎通修正 — 調査結果: MessageEvent はパイプライン（`/ingest`）経由で既に存在。Stop フック payload に `transcript_path` が含まれない問題は `adapter.py` のフォールバック導出（CWD→スラグ→`~/.claude/projects/<slug>/<session_id>.jsonl`）で解消。スラグヘルパーを `src/adapters/claude/paths.py` に共有モジュール化。`ChatPane.tsx` の古い TODO メッセージを「取込→分析を実行」ヒントに更新。
 
 #### セッション単位要約API（2026-05-10）
 - ✅ `POST /sessions/{session_id}/summarize` — セッション内の未要約会話をまとめて要約（`force=true` で全会話再要約）
@@ -250,6 +250,11 @@ React フロントエンド:
 - ✅ `GET /umap` FastAPIエンドポイント（session_id / since / until / color_by 対応）
 - ✅ トピックマップページ（`UmapPage.tsx`）— GUI第3ページとして追加
 - ⬜ Multi-source adapter（webchat / Discord Bot / Gemini CLI）
+  > ⚠️ **規約懸念**: 各プラットフォームの利用規約・API Terms of Service を実装前に確認すること。
+  > - **Discord Bot**: Discord ToS § 2.5 / Developer Policy — ユーザーメッセージの第三者ストレージは原則禁止。Bot 経由の自動収集はサーバー管理者の同意とユーザーへの開示が必要。
+  > - **Webchat（LINE/Slack 等）**: 各社の Developer Agreement により取得データの目的外利用・再配布が制限される場合がある。Slack の場合は Customer Data の定義とデータ処理補足書（DPA）の確認が必須。
+  > - **Gemini CLI**: Google API Terms of Service / Generative AI Additional Terms — Google サービスを経由したデータのローカル永続化可否を確認すること。
+  > - **共通**: 個人情報保護法（日本）・GDPR（EU）の観点から、個人を特定しうるチャットログの保存・処理にはデータ主体の同意フローと削除対応が必要になる可能性がある。
 - ⬜ Cross-session topic graph
 - ⬜ TemporalVectorKB統合
 

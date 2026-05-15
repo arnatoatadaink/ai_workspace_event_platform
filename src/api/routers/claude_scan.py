@@ -18,13 +18,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from src.adapters.claude.paths import cwd_to_claude_project_dir
 from src.adapters.claude.transcript import parse_transcript_messages, write_cursor
 from src.api.deps import get_db, get_store
 from src.replay.db import ConversationsDB
@@ -34,15 +34,6 @@ from src.store.event_store import EventStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _cwd_to_claude_project_dir() -> Path:
-    """Derive ~/.claude/projects/<slug>/ from the current working directory."""
-    import os
-
-    cwd = str(Path(os.getcwd()).resolve())
-    slug = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
-    return Path.home() / ".claude" / "projects" / slug
 
 
 class ScannedSession(BaseModel):
@@ -125,7 +116,7 @@ async def scan_sessions(
 
     Returns session metadata without importing events into the store.
     """
-    target = Path(scan_dir).expanduser().resolve() if scan_dir else _cwd_to_claude_project_dir()
+    target = Path(scan_dir).expanduser().resolve() if scan_dir else cwd_to_claude_project_dir()
     return await asyncio.to_thread(_scan_dir, target)
 
 
@@ -147,7 +138,7 @@ async def ingest_session_transcript(
 
     Returns the number of ingested events and skipped duplicates.
     """
-    scan_dir = _cwd_to_claude_project_dir()
+    scan_dir = cwd_to_claude_project_dir()
     transcript_path = scan_dir / f"{session_id}.jsonl"
     pipeline_cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.pipeline.cursor"
     store_base = Path("runtime/sessions")
@@ -214,7 +205,7 @@ async def analyze_session_transcript(
 
     Returns the number of newly created conversation records.
     """
-    scan_dir = _cwd_to_claude_project_dir()
+    scan_dir = cwd_to_claude_project_dir()
     transcript_path: Optional[Path] = scan_dir / f"{session_id}.jsonl"
     if not transcript_path.exists():
         transcript_path = None

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.adapters.base import AdapterPlugin
+from src.adapters.claude.paths import transcript_path_for_session
 from src.adapters.claude.transcript import parse_transcript_messages, write_cursor
 from src.schemas.internal_event_v1 import (
     ApprovalEvent,
@@ -53,9 +54,15 @@ class ClaudeAdapter(AdapterPlugin):
         self,
         cursor_dir: str | Path = _DEFAULT_CURSOR_DIR,
         store_base: str | Path = _DEFAULT_STORE_BASE,
+        claude_project_dir: str | Path | None = None,
     ) -> None:
         self._cursor_dir = Path(cursor_dir)
         self._store_base = Path(store_base)
+        # Capture CWD at init time; used to derive transcript_path when the
+        # Stop hook payload omits it (older Claude Code versions don't include it).
+        self._claude_project_dir: Path | None = (
+            Path(claude_project_dir) if claude_project_dir else None
+        )
 
     @property
     def source_name(self) -> str:
@@ -91,6 +98,21 @@ class ClaudeAdapter(AdapterPlugin):
         events: list[InternalEvent] = []
 
         transcript_path_str = payload.get("transcript_path")
+        if not transcript_path_str and self._claude_project_dir is None:
+            # Derive from CWD captured at init time (older Claude Code versions omit
+            # transcript_path from the Stop payload).
+            derived = transcript_path_for_session(session_id)
+            if derived.exists():
+                transcript_path_str = str(derived)
+                logger.debug(
+                    "ClaudeAdapter: transcript_path absent in payload; derived %s",
+                    transcript_path_str,
+                )
+        elif not transcript_path_str and self._claude_project_dir is not None:
+            derived = self._claude_project_dir / f"{session_id}.jsonl"
+            if derived.exists():
+                transcript_path_str = str(derived)
+
         if transcript_path_str:
             transcript_path = Path(transcript_path_str)
             cursor_path = self._cursor_dir / f"{session_id}.cursor"

@@ -147,10 +147,8 @@ export function ChatPane({ sessionId, onToggleSidebar, sidebarOpen }: Props) {
           {!loading && allMessages.length === 0 && (
             <div className="chat-empty-state">
               <p className="chat-empty-title">メッセージがありません</p>
-              <p className="chat-empty-todo">
-                TODO: transcript_path 経由のメッセージ取得が未動作です。
-                Stop フックで transcript_path が渡されると user / assistant
-                メッセージが表示されます。
+              <p className="chat-empty-hint">
+                ホームタブで「取込」→「分析」を実行するとメッセージが表示されます。
               </p>
             </div>
           )}
