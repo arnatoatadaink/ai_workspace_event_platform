@@ -182,6 +182,22 @@ class ConversationsDB:
             )
             """
         )
+        # FTS5 virtual table for full-text search over conversation summaries.
+        # trigram tokenizer is required for Japanese / CJK substring matching.
+        await self._conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+                conversation_id UNINDEXED,
+                session_id      UNINDEXED,
+                project_id      UNINDEXED,
+                created_at      UNINDEXED,
+                summary_short,
+                summary_long,
+                topics_text,
+                tokenize = 'trigram'
+            )
+            """
+        )
         await self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -345,8 +361,9 @@ class ConversationsDB:
         topics: list[str],
         model_used: str,
     ) -> None:
-        """Insert or replace a summary for a conversation."""
+        """Insert or replace a summary for a conversation and sync FTS index."""
         assert self._conn is not None
+        topics_json = json.dumps(topics, ensure_ascii=False)
         await self._conn.execute(
             """
             INSERT OR REPLACE INTO conversation_summaries
@@ -357,11 +374,34 @@ class ConversationsDB:
                 conversation_id,
                 summary_short,
                 summary_long,
-                json.dumps(topics, ensure_ascii=False),
+                topics_json,
                 datetime.now(timezone.utc).isoformat(),
                 model_used,
             ),
         )
+        # Keep FTS index in sync.  Fetch parent row for session/project/created_at.
+        cur = await self._conn.execute(
+            "SELECT session_id, project_id, created_at FROM conversations WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        row = await cur.fetchone()
+        if row is not None:
+            session_id, project_id, created_at = row[0], row[1], row[2]
+            topics_text = " ".join(topics)
+            await self._conn.execute(
+                "DELETE FROM conversations_fts WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            await self._conn.execute(
+                """
+                INSERT INTO conversations_fts
+                  (conversation_id, session_id, project_id, created_at,
+                   summary_short, summary_long, topics_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (conversation_id, session_id, project_id, created_at,
+                 summary_short, summary_long, topics_text),
+            )
         await self._conn.commit()
 
     async def get_summary(self, conversation_id: str) -> Optional[dict[str, Any]]:
@@ -588,6 +628,211 @@ class ConversationsDB:
             (topic, vector, model, datetime.now(timezone.utc).isoformat()),
         )
         await self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # FTS management
+    # ------------------------------------------------------------------
+
+    async def backfill_fts(self) -> int:
+        """Populate FTS index for any summaries not yet indexed.
+
+        Safe to call at every startup — only inserts rows that are missing
+        from conversations_fts.  Returns the number of rows inserted.
+        """
+        assert self._conn is not None
+        cur = await self._conn.execute(
+            """
+            SELECT cs.conversation_id, c.session_id, c.project_id, c.created_at,
+                   cs.summary_short, cs.summary_long, cs.topics
+            FROM conversation_summaries cs
+            INNER JOIN conversations c ON c.conversation_id = cs.conversation_id
+            WHERE cs.conversation_id NOT IN (
+                SELECT conversation_id FROM conversations_fts
+            )
+            """
+        )
+        rows = await cur.fetchall()
+        count = 0
+        for row in rows:
+            conv_id, session_id, project_id, created_at = row[0], row[1], row[2], row[3]
+            summary_short, summary_long = row[4], row[5]
+            topics_text = " ".join(json.loads(row[6]))
+            await self._conn.execute(
+                """
+                INSERT INTO conversations_fts
+                  (conversation_id, session_id, project_id, created_at,
+                   summary_short, summary_long, topics_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (conv_id, session_id, project_id, created_at,
+                 summary_short, summary_long, topics_text),
+            )
+            count += 1
+        if count:
+            await self._conn.commit()
+        return count
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    async def search_conversations_fts(
+        self,
+        query: str,
+        limit: int = 20,
+        project_id: Optional[str] = None,
+        since: Optional[datetime] = None,
+    ) -> list[dict[str, Any]]:
+        """Full-text search over conversation summaries using FTS5 trigram index.
+
+        Returns conversations ordered newest-first, with summary and topics.
+        The trigram tokenizer supports Japanese / CJK substring matching.
+        """
+        assert self._conn is not None
+        conditions = ["conversations_fts MATCH ?"]
+        params: list[Any] = [query]
+
+        if project_id is not None:
+            conditions.append("f.project_id = ?")
+            params.append(project_id)
+
+        if since is not None:
+            conditions.append("f.created_at >= ?")
+            params.append(since.isoformat())
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+
+        cur = await self._conn.execute(
+            f"""
+            SELECT f.conversation_id, f.session_id, f.project_id, f.created_at,
+                   cs.summary_short, cs.topics
+            FROM conversations_fts f
+            JOIN conversation_summaries cs ON cs.conversation_id = f.conversation_id
+            WHERE {where}
+            ORDER BY f.created_at DESC
+            LIMIT ?
+            """,
+            params,
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                "conversation_id": row[0],
+                "session_id": row[1],
+                "project_id": row[2],
+                "created_at": row[3],
+                "summary_short": row[4],
+                "topics": json.loads(row[5]),
+            }
+            for row in rows
+        ]
+
+    async def search_by_topic(
+        self,
+        keyword: str,
+        limit: int = 20,
+        project_id: Optional[str] = None,
+        since: Optional[datetime] = None,
+    ) -> list[dict[str, Any]]:
+        """Return conversations whose topics array contains a partial match for *keyword*.
+
+        Uses SQLite json_each expansion + LIKE for substring matching.
+        Case-insensitive (LIKE is case-insensitive for ASCII; CJK is exact).
+        """
+        assert self._conn is not None
+        conditions = ["EXISTS (SELECT 1 FROM json_each(cs.topics) WHERE value LIKE ?)"]
+        params: list[Any] = [f"%{keyword}%"]
+
+        if project_id is not None:
+            conditions.append("c.project_id = ?")
+            params.append(project_id)
+
+        if since is not None:
+            conditions.append("c.created_at >= ?")
+            params.append(since.isoformat())
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+
+        cur = await self._conn.execute(
+            f"""
+            SELECT c.conversation_id, c.session_id, c.project_id, c.created_at,
+                   cs.summary_short, cs.topics
+            FROM conversations c
+            INNER JOIN conversation_summaries cs ON cs.conversation_id = c.conversation_id
+            WHERE {where}
+            ORDER BY c.created_at DESC
+            LIMIT ?
+            """,
+            params,
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                "conversation_id": row[0],
+                "session_id": row[1],
+                "project_id": row[2],
+                "created_at": row[3],
+                "summary_short": row[4],
+                "topics": json.loads(row[5]),
+            }
+            for row in rows
+        ]
+
+    async def get_recent_context(
+        self,
+        n: int = 5,
+        session_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return the N most recent summarised conversations for context injection.
+
+        When *session_id* is provided, returns context from that session only.
+        When *project_id* is provided (without session_id), scopes to that project.
+        When neither is provided, returns from the most recent conversations globally.
+
+        Each row: {conversation_id, session_id, project_id, created_at, summary_short, topics}.
+        Ordered newest-first so callers can truncate from the end if needed.
+        """
+        assert self._conn is not None
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if session_id is not None:
+            conditions.append("c.session_id = ?")
+            params.append(session_id)
+        elif project_id is not None:
+            conditions.append("c.project_id = ?")
+            params.append(project_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(n)
+
+        cur = await self._conn.execute(
+            f"""
+            SELECT c.conversation_id, c.session_id, c.project_id, c.created_at,
+                   cs.summary_short, cs.topics
+            FROM conversations c
+            INNER JOIN conversation_summaries cs ON cs.conversation_id = c.conversation_id
+            {where}
+            ORDER BY c.created_at DESC
+            LIMIT ?
+            """,
+            params,
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                "conversation_id": row[0],
+                "session_id": row[1],
+                "project_id": row[2],
+                "created_at": row[3],
+                "summary_short": row[4],
+                "topics": json.loads(row[5]),
+            }
+            for row in rows
+        ]
 
     # ------------------------------------------------------------------
     # UMAP topic aggregation

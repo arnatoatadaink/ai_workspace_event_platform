@@ -328,4 +328,79 @@ React フロントエンド:
 - ✅ `POST /conversations/{id}/summarize` + `POST /sessions/{id}/summarize` — 両エンドポイントで `throttle.run()` を適用（グローバル直列化）
 - ✅ `SettingsPage.tsx` — 「要約インターバル（クールダウン）」セクション追加（固定インターバル秒・比例係数フォーム、保存フィードバック付き）
 
-_最終更新: 2026-05-16 — 要約インターバル・クールダウン追加: グローバル直列化スロットル + 固定/比例インターバル設定画面_
+---
+
+### STEP 5 — ClaudeCLI向け検索・コンテキスト抽出API（2026-05-16 新規追加）
+
+#### 背景・導入状況
+
+- ✅ MED側 `.claude/settings.json` に Stop / PreToolUse / PostToolUse hook 設定済み（`scripts/install-hooks.sh` で導入）
+- ✅ MED会話はリアルタイムで `/ingest` → JSONL → DB に蓄積中
+- ⬜ DBを活用した「過去会話の検索・抽出」APIは未実装
+
+#### 5-1: 全文検索（FTS5）✅ 完了（2026-05-16）
+- ✅ `src/replay/db.py` — FTS5仮想テーブル `conversations_fts`（trigram tokenizer、日本語3文字以上対応）
+- ✅ `src/replay/db.py` — `search_conversations_fts(query, limit, since, project_id)` メソッド
+- ✅ `src/replay/db.py` — `backfill_fts()` — 起動時に未インデックスサマリーを一括投入
+- ✅ `insert_summary` にFTS同期組み込み（insert → FTS同時更新）
+- ✅ `GET /search/conversations?q={text}` — FTS5全文検索API（project_id / since_days / limit フィルタ）
+- ✅ `src/api/main.py` — lifespan起動時に `backfill_fts()` 実行
+- 📝 注意: trigram tokenizer は最低3文字必要（2文字CJKクエリは空返し）
+
+#### 5-2: トピックキーワード検索 ✅ 完了（2026-05-16）
+- ✅ `src/replay/db.py` — `search_by_topic(keyword, limit, since, project_id)` — `json_each` + LIKE
+- ✅ `GET /search/topics?q={keyword}` — トピック名部分一致で会話一覧を返すAPI
+
+#### 5-3: セマンティック検索（k-NN / topic_embeddings）
+- ⬜ `src/replay/db.py` — `get_all_topic_embeddings()` — `topic_embeddings` テーブルから全ベクトル取得
+- ⬜ `src/replay/semantic_search.py` — cosine similarity k-NN（numpy）/ クエリ文字列をembedding→最近傍topicを返す
+- ⬜ `GET /search/semantic?q={text}&k=10` — セマンティック類似トピック→会話検索API
+
+#### 5-4: コンテキスト注入API ✅ 完了（2026-05-16）
+- ✅ `GET /context/recent?session_id={id}&n=5` — 最近N会話の要約をまとめて返す
+- ✅ スコープ: session_id → そのセッション / project_id → プロジェクト / 省略 → 全プロジェクト最新
+- ✅ `n` デフォルト=5、上限=20
+- 📝 hook注意: Claude Codeの `UserPromptSubmit` hookのstdoutがコンテキスト注入に使える（`PreToolUse` は不可）
+- ✅ `tests/test_search_api.py` — 22テスト全GREEN
+
+#### 5-6: UserPromptSubmit オプショナルhookスクリプト ✅ 完了（2026-05-17）
+
+`install-hooks.sh` はベースhook（Stop/PreToolUse/PostToolUse）のみを常時インストール。
+UserPromptSubmit hookは用途に応じて選択オプションとして提供する。
+
+**選択肢（いずれか一方を選ぶこと。両方指定すると2ブロック注入される）:**
+
+| スクリプト | フラグ | 動作 | 状態 |
+|-----------|--------|------|------|
+| `scripts/context_hook.py` | `--with-context` | session_idからAWEP `/context/recent` を呼び出し、最近N会話の要約を注入 | ✅ |
+| `scripts/topic_hook.py` | `--with-topics` | プロンプトからキーワード抽出 → FTS5検索 `/search/conversations`、関連会話を注入。将来: FAISS k-NN（MED連携）に差し替え予定 | ✅（FTS5版）⬜（FAISS版） |
+
+**インストール例:**
+```bash
+./scripts/install-hooks.sh                               # ベースhookのみ
+./scripts/install-hooks.sh --with-context                # 最近の会話コンテキスト注入
+./scripts/install-hooks.sh --with-topics                 # 関連トピック検索注入
+SETTINGS_FILE=/path/to/.claude/settings.json ./scripts/install-hooks.sh --with-context
+```
+
+**テスト:**
+```bash
+echo '{"session_id":"<id>"}' | python3 scripts/context_hook.py
+echo '{"prompt": "FastAPIのルーター設計"}' | python3 scripts/topic_hook.py
+```
+
+- ✅ `scripts/install-hooks.sh` — フラグベース引数・機能別関数に再構成、idempotencyチェックを `.hooks[].description` 深い階層対応に修正
+- ✅ `scripts/context_hook.py` — UserPromptSubmit stdin の `session_id` を利用してスコープ特定、timeout=2で非同期失敗時はexit 0
+- ✅ `scripts/topic_hook.py` — プロンプトから CJK/ASCII キーワード抽出（FTS5記号サニタイズ済み）、`/search/conversations` でFTS5検索、関連会話を注入
+
+#### 5-7: topic_hook.py FAISS対応（将来ステップ）
+- ⬜ `GET /search/semantic?q={text}&k=10` API実装（5-3）完了後、`topic_hook.py` をFAISSセマンティック検索に差し替え
+- ⬜ MED側FAISSインデックスとのブリッジ検討（5-5に統合予定）
+
+#### 5-5: MED←→AWEP 連携（将来ステップ、スコープ要確認）
+- ⏸ AWEPの会話サマリーをMED FAISSへ自動投入（`scripts/seed_from_awep.py`）
+- ⏸ MEDのFAISS検索結果をAWEPへフィードバック（knowledge graph強化）
+
+---
+
+_最終更新: 2026-05-17 — STEP 5-6完了: UserPromptSubmit オプショナルhook（context/topics）、install-hooks.sh再構成_

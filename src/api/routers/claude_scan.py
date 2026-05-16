@@ -194,15 +194,27 @@ async def ingest_session_transcript(
     Returns the number of ingested events and skipped duplicates.
     """
     scan_dir = cwd_to_claude_project_dir()
-    transcript_path = scan_dir / f"{session_id}.jsonl"
-    pipeline_cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.pipeline.cursor"
-    store_base = Path("runtime/sessions")
-
+    transcript_path: Optional[Path] = scan_dir / f"{session_id}.jsonl"
     if not transcript_path.exists():
+        # Fall back to searching all project directories (mirrors analyze endpoint).
+        projects_root = Path.home() / ".claude" / "projects"
+        transcript_path = None
+        if projects_root.is_dir():
+            for slug_dir in projects_root.iterdir():
+                candidate = slug_dir / f"{session_id}.jsonl"
+                if candidate.exists():
+                    transcript_path = candidate
+                    scan_dir = slug_dir
+                    break
+
+    if transcript_path is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Transcript not found: {transcript_path}",
+            detail=f"Transcript not found for session {session_id} in any project directory",
         )
+
+    pipeline_cursor_path = Path("runtime/transcript_cursors") / f"{session_id}.pipeline.cursor"
+    store_base = Path("runtime/sessions")
 
     # Parse transcript from pipeline cursor; skip migration guard — rely on UUID dedup instead.
     msg_events, new_line_count = await asyncio.to_thread(

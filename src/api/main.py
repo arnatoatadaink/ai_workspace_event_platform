@@ -19,11 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.adapters.claude.adapter import ClaudeAdapter
 from src.api.routers import (
     claude_scan,
+    context,
     conversations,
     dataflow,
     events,
     ingest,
     plugins,
+    search,
     sessions,
     settings,
     summarize,
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     snapshot_store = SnapshotStore()
     await snapshot_store.connect()
+    await db.backfill_fts()
 
     summarizer = build_backend(load_summarizer_settings())
     pipeline = SummaryTopicPipeline(
@@ -113,3 +116,5 @@ app.include_router(umap.router)
 app.include_router(dataflow.router)
 app.include_router(topic_graph.router)
 app.include_router(settings.router)
+app.include_router(search.router)
+app.include_router(context.router)
