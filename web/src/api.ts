@@ -347,3 +347,29 @@ export async function summarizeConversation(
   if (!res.ok) throw new Error(`POST /conversations/${conversationId}/summarize: ${res.status}`);
   return res.json();
 }
+
+export type SummarizationIntervalSettings = {
+  fixed_interval_seconds: number;
+  proportional_factor: number;
+};
+
+export async function fetchIntervalSettings(): Promise<SummarizationIntervalSettings> {
+  const res = await fetch(`${BASE}/settings/summarization-interval`);
+  if (!res.ok) throw new Error(`GET /settings/summarization-interval: ${res.status}`);
+  return res.json();
+}
+
+export async function putIntervalSettings(
+  body: SummarizationIntervalSettings,
+): Promise<SummarizationIntervalSettings> {
+  const res = await fetch(`${BASE}/settings/summarization-interval`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail.detail ?? `PUT /settings/summarization-interval: ${res.status}`);
+  }
+  return res.json();
+}

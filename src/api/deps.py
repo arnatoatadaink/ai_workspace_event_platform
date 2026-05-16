@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from src.adapters.base import AdapterPlugin
+from src.api.summarization_throttle import SummarizationThrottle
 from src.replay.db import ConversationsDB
 from src.replay.snapshot_store import SnapshotStore
 from src.replay.summarizer import SummarizerBackend
@@ -34,3 +35,8 @@ def get_summarizer(request: Request) -> SummarizerBackend:
 def get_snapshot_store(request: Request) -> SnapshotStore:
     """Return the shared SnapshotStore instance."""
     return request.app.state.snapshot_store  # type: ignore[no-any-return]
+
+
+def get_throttle(request: Request) -> SummarizationThrottle:
+    """Return the shared SummarizationThrottle instance."""
+    return request.app.state.throttle  # type: ignore[no-any-return]

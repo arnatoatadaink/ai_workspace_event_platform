@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import {
   type BackendKind,
+  type SummarizationIntervalSettings,
   type SummarizerSettingsPut,
   type TestConnectionRequest,
+  fetchIntervalSettings,
   fetchSummarizerSettings,
+  putIntervalSettings,
   putSummarizerSettings,
   testSummarizerConnection,
 } from "../api";
@@ -46,10 +49,17 @@ export default function SettingsPage(): React.ReactElement {
   );
   const [loading, setLoading] = useState(true);
 
+  const [intervalForm, setIntervalForm] = useState<SummarizationIntervalSettings>({
+    fixed_interval_seconds: 0,
+    proportional_factor: 0,
+  });
+  const [intervalSaveState, setIntervalSaveState] = useState<SaveState>("idle");
+  const [intervalSaveError, setIntervalSaveError] = useState("");
+
   useEffect(() => {
     // useEffect with empty deps: runs once on mount to load persisted settings
-    fetchSummarizerSettings()
-      .then((s) => {
+    Promise.all([fetchSummarizerSettings(), fetchIntervalSettings()])
+      .then(([s, iv]) => {
         setForm({
           backend: s.backend,
           base_url: s.base_url,
@@ -57,6 +67,7 @@ export default function SettingsPage(): React.ReactElement {
           model: s.model,
         });
         setApiKeyPlaceholder(s.api_key_masked || "(none)");
+        setIntervalForm(iv);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -103,6 +114,27 @@ export default function SettingsPage(): React.ReactElement {
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
       setSaveState("error");
+    }
+  };
+
+  const handleIntervalField =
+    (field: keyof SummarizationIntervalSettings) =>
+    (e: React.ChangeEvent<HTMLInputElement>): void => {
+      const value = parseFloat(e.target.value);
+      setIntervalForm((prev) => ({ ...prev, [field]: isNaN(value) ? 0 : value }));
+    };
+
+  const handleIntervalSave = async (): Promise<void> => {
+    setIntervalSaveState("saving");
+    setIntervalSaveError("");
+    try {
+      const updated = await putIntervalSettings(intervalForm);
+      setIntervalForm(updated);
+      setIntervalSaveState("saved");
+      setTimeout(() => setIntervalSaveState("idle"), 2500);
+    } catch (err) {
+      setIntervalSaveError(err instanceof Error ? err.message : String(err));
+      setIntervalSaveState("error");
     }
   };
 
@@ -211,6 +243,60 @@ export default function SettingsPage(): React.ReactElement {
 
         {saveState === "saved" && <div className="settings-save-ok">保存しました</div>}
         {saveState === "error" && <div className="settings-save-error">{saveError}</div>}
+      </section>
+
+      <section className="settings-section">
+        <h3>要約インターバル（クールダウン）</h3>
+        <p className="settings-hint">
+          要約処理を全体でシリアライズし、各呼び出しの後にクールダウン待機を挿入します。
+          ローカル LLM サーバーへの負荷軽減に使用してください。
+          <br />
+          待機時間 = <strong>固定インターバル</strong> + 直前の処理時間 ×{" "}
+          <strong>比例係数</strong>（両方 0 でクールダウン無効）
+        </p>
+
+        <div className="settings-field">
+          <label htmlFor="fixed_interval">固定インターバル（秒）</label>
+          <input
+            id="fixed_interval"
+            type="number"
+            min="0"
+            step="0.5"
+            value={intervalForm.fixed_interval_seconds}
+            onChange={handleIntervalField("fixed_interval_seconds")}
+          />
+          <span className="settings-hint">毎回の呼び出し後に固定で待機する秒数（0 = 無効）</span>
+        </div>
+
+        <div className="settings-field">
+          <label htmlFor="proportional_factor">比例係数</label>
+          <input
+            id="proportional_factor"
+            type="number"
+            min="0"
+            step="0.1"
+            value={intervalForm.proportional_factor}
+            onChange={handleIntervalField("proportional_factor")}
+          />
+          <span className="settings-hint">
+            直前の処理時間に掛ける係数（例: 0.5 → 処理に 10 秒かかった場合、5 秒待機）
+          </span>
+        </div>
+
+        <div className="settings-actions">
+          <button
+            className="btn-save"
+            onClick={() => void handleIntervalSave()}
+            disabled={intervalSaveState === "saving"}
+          >
+            {intervalSaveState === "saving" ? "保存中…" : "保存"}
+          </button>
+        </div>
+
+        {intervalSaveState === "saved" && <div className="settings-save-ok">保存しました</div>}
+        {intervalSaveState === "error" && (
+          <div className="settings-save-error">{intervalSaveError}</div>
+        )}
       </section>
     </div>
   );

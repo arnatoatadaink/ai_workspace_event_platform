@@ -24,7 +24,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from src.api.deps import get_db, get_store, get_summarizer
+from src.api.deps import get_db, get_store, get_summarizer, get_throttle
+from src.api.summarization_throttle import SummarizationThrottle
 from src.replay.db import ConversationsDB
 from src.replay.summarizer import SummarizerBackend, summarize_conversation
 from src.store.event_store import EventStore
@@ -67,6 +68,7 @@ async def summarize_one(
     db: ConversationsDB = Depends(get_db),
     store: EventStore = Depends(get_store),
     backend: SummarizerBackend = Depends(get_summarizer),
+    throttle: SummarizationThrottle = Depends(get_throttle),
 ) -> SummarizeResponse:
     """Summarize a conversation on demand.
 
@@ -76,6 +78,7 @@ async def summarize_one(
     to the event store and persists the result in SQLite.
 
     Returns the cached summary when one already exists and ``force`` is False.
+    The LLM call is serialized through the global SummarizationThrottle.
     """
     conv = await db.get_conversation_by_id(conversation_id)
     if conv is None:
@@ -93,7 +96,7 @@ async def summarize_one(
                 was_cached=True,
             )
 
-    result = await summarize_conversation(conv, store, db, backend)
+    result = await throttle.run(summarize_conversation(conv, store, db, backend))
 
     return SummarizeResponse(
         conversation_id=conversation_id,
@@ -118,6 +121,7 @@ async def summarize_session(
     db: ConversationsDB = Depends(get_db),
     store: EventStore = Depends(get_store),
     backend: SummarizerBackend = Depends(get_summarizer),
+    throttle: SummarizationThrottle = Depends(get_throttle),
 ) -> SessionSummarizeResponse:
     """Summarize all conversations in a session sequentially.
 
@@ -161,7 +165,7 @@ async def summarize_session(
                 skipped += 1
                 continue
         try:
-            result = await summarize_conversation(conv, store, db, backend)
+            result = await throttle.run(summarize_conversation(conv, store, db, backend))
             processed += 1
             results.append(
                 SessionSummarizeResult(

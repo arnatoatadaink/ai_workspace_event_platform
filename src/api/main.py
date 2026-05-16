@@ -33,6 +33,7 @@ from src.api.routers import (
     ws,
 )
 from src.api.settings_store import build_backend, load_summarizer_settings
+from src.api.summarization_throttle import SummarizationThrottle
 from src.replay.db import ConversationsDB
 from src.replay.pipeline import SummaryTopicPipeline
 from src.replay.snapshot_store import SnapshotStore
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.snapshot_store = snapshot_store
     app.state.pipeline = pipeline
     app.state.summarizer = summarizer
+    app.state.throttle = SummarizationThrottle()
 
     yield
 

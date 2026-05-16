@@ -320,4 +320,12 @@ React フロントエンド:
 #### CrossProject 保留・バックログ
 - ⬜ **プラットフォーム丸ごとインストール** — API + DB + GUI を別環境に一括展開（Docker化 / setup.sh）。スコープが大きいため将来ステップ。
 
-_最終更新: 2026-05-16 — CrossProject 処理実装: project_id DB列追加 / 全プロジェクト横断スキャン / GUI プロジェクトグループ表示 / Hook インストーラースクリプト_
+#### 要約インターバル・クールダウン（2026-05-16）
+- ✅ `src/api/summarization_throttle.py` — `SummarizationThrottle` 新設。`asyncio.Lock` で全要約呼び出しをグローバル直列化。クールダウン式: `wait = fixed_interval_seconds + elapsed × proportional_factor`。設定はディスクから毎回再読み込みのため再起動不要。
+- ✅ `src/api/settings_store.py` — `SummarizationIntervalSettings` モデル追加（`fixed_interval_seconds` / `proportional_factor`、両方 0 で無効）。`load_interval_settings` / `save_interval_settings` 追加。内部ヘルパー `_load_raw` / `_save_raw` に整理（summarizer 設定と同一 JSON ファイルへの読み書きが競合しないよう）。
+- ✅ `GET /settings/summarization-interval` / `PUT /settings/summarization-interval` — インターバル設定 API
+- ✅ `src/api/main.py` + `deps.py` — lifespan で `SummarizationThrottle` を `app.state.throttle` に登録、`get_throttle` dep 追加
+- ✅ `POST /conversations/{id}/summarize` + `POST /sessions/{id}/summarize` — 両エンドポイントで `throttle.run()` を適用（グローバル直列化）
+- ✅ `SettingsPage.tsx` — 「要約インターバル（クールダウン）」セクション追加（固定インターバル秒・比例係数フォーム、保存フィードバック付き）
+
+_最終更新: 2026-05-16 — 要約インターバル・クールダウン追加: グローバル直列化スロットル + 固定/比例インターバル設定画面_

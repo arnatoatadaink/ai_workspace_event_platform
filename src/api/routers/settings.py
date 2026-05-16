@@ -1,10 +1,12 @@
-"""Settings API: summarizer backend configuration.
+"""Settings API: summarizer backend configuration and interval settings.
 
 Endpoints
 ---------
-GET  /settings/summarizer        Return current config (api_key masked).
-PUT  /settings/summarizer        Validate, persist, and hot-swap the backend.
-POST /settings/summarizer/test   Test-connect with provided config (no persist).
+GET  /settings/summarizer              Return current config (api_key masked).
+PUT  /settings/summarizer              Validate, persist, and hot-swap the backend.
+POST /settings/summarizer/test         Test-connect with provided config (no persist).
+GET  /settings/summarization-interval  Return current interval/cooldown settings.
+PUT  /settings/summarization-interval  Persist interval settings.
 """
 
 from __future__ import annotations
@@ -13,14 +15,17 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.api.settings_store import (
     BackendKind,
+    SummarizationIntervalSettings,
     SummarizerSettings,
     build_backend,
+    load_interval_settings,
     load_summarizer_settings,
     mask_api_key,
+    save_interval_settings,
     save_summarizer_settings,
 )
 
@@ -116,6 +121,30 @@ async def put_summarizer_settings(
         "Summarizer updated: backend=%s model=%s", updated.backend, updated.model
     )
     return _to_response(updated)
+
+
+@router.get("/summarization-interval", response_model=SummarizationIntervalSettings)
+async def get_interval_settings() -> SummarizationIntervalSettings:
+    """Return the current summarization interval/cooldown configuration."""
+    return load_interval_settings()
+
+
+@router.put("/summarization-interval", response_model=SummarizationIntervalSettings)
+async def put_interval_settings(
+    body: SummarizationIntervalSettings,
+) -> SummarizationIntervalSettings:
+    """Persist summarization interval settings.
+
+    Changes take effect immediately for subsequent summarization calls without
+    a server restart.
+    """
+    save_interval_settings(body)
+    logger.info(
+        "Summarization interval updated: fixed=%.2fs, factor=%.2f",
+        body.fixed_interval_seconds,
+        body.proportional_factor,
+    )
+    return body
 
 
 @router.post("/summarizer/test", response_model=TestConnectionResponse)
